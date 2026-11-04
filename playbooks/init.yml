@@ -1,0 +1,31 @@
+---
+- name: 系统初始化
+  hosts: all
+  tasks:
+    - name: 设置时区
+      command: timedatectl set-timezone Asia/Shanghai
+      changed_when: false
+
+    - name: 安装 chrony 与基础工具
+      command: dnf install -y chrony vim tmux git sysstat lsof net-tools tar unzip
+      changed_when: false
+
+    - name: 启动 chronyd 并设置开机自启
+      systemd:
+        name: chronyd
+        state: started
+        enabled: yes
+
+    - name: 配置内核参数
+      copy:
+        dest: /etc/sysctl.d/99-ops.conf
+        content: |
+          net.ipv4.tcp_syncookies = 1
+          net.ipv4.tcp_max_syn_backlog = 8192
+          net.ipv4.ip_forward = 0
+          net.ipv4.conf.all.accept_redirects = 0
+          vm.swappiness = 10
+
+    - name: 应用内核参数
+      command: sysctl --system
+      changed_when: false
