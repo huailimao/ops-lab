@@ -1,0 +1,44 @@
+---
+- name: 防火墙配置
+  hosts: all
+  tasks:
+    - name: 安装 firewalld
+      command: dnf install -y firewalld
+      changed_when: false
+
+    - name: 启动 firewalld
+      systemd:
+        name: firewalld
+        state: started
+        enabled: yes
+
+    - name: 放行 SSH
+      firewalld:
+        service: ssh
+        permanent: yes
+        state: enabled
+        immediate: yes
+
+    - name: 放行 HTTP HTTPS（仅 web 层）
+      firewalld:
+        service: "{{ item }}"
+        permanent: yes
+        state: enabled
+        immediate: yes
+      loop:
+        - http
+        - https
+      when: inventory_hostname in groups['web']
+
+    - name: 应用永久规则
+      command: firewall-cmd --reload
+      changed_when: false
+
+    - name: 查看规则
+      command: firewall-cmd --list-all
+      changed_when: false
+      register: fw
+
+    - name: 打印结果
+      debug:
+        var: fw.stdout_lines
