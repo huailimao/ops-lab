@@ -1,0 +1,43 @@
+---
+- name: SSH 加固（禁 root、禁密码、优化登录速度）
+  hosts: all
+  tasks:
+    - name: 备份 sshd_config
+      copy:
+        src: /etc/ssh/sshd_config
+        dest: /etc/ssh/sshd_config.bak
+        remote_src: yes
+        force: no
+
+    - name: 禁止 root 直接登录
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PermitRootLogin'
+        line: 'PermitRootLogin no'
+
+    - name: 禁止密码登录
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+
+    - name: 关闭反向 DNS 查询
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?UseDNS'
+        line: 'UseDNS no'
+
+    - name: 关闭 GSSAPI
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?GSSAPIAuthentication'
+        line: 'GSSAPIAuthentication no'
+
+    - name: 校验 sshd 配置语法
+      command: sshd -t
+      changed_when: false
+
+    - name: 重启 sshd
+      systemd:
+        name: sshd
+        state: restarted
