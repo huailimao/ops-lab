@@ -1,0 +1,17 @@
+[bastion]
+192.168.1.10 ansible_host=115.29.12.78
+
+[web]
+192.168.1.11
+192.168.1.12
+
+[app]
+192.168.1.13
+192.168.1.14
+
+[db]
+
+[all:vars]
+ansible_user=root
+ansible_ssh_private_key_file=/root/.ssh/idrsa
+ansible_python_interpreter=/usr/bin/python3
