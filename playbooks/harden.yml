@@ -1,0 +1,23 @@
+---
+- name: SSH 加固第一阶段（建用户）
+  hosts: all
+  tasks:
+    - name: 创建 ops 用户
+      user:
+        name: ops
+        groups: wheel
+        shell: /bin/bash
+        create_home: yes
+
+    - name: 配置免密 sudo
+      copy:
+        dest: /etc/sudoers.d/ops
+        content: "ops ALL=(ALL) NOPASSWD: ALL\n"
+        mode: '0440'
+        validate: 'visudo -cf %s'
+
+    - name: 为 ops 分发公钥
+      authorized_key:
+        user: ops
+        state: present
+        key: "{{ lookup('file', '/root/.ssh/authorized_keys') }}"
