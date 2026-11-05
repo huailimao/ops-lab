@@ -132,12 +132,12 @@ mysql       ×  2   192.168.1.237–238:9104   主从各一
 redis       ×  2   192.168.1.237–238:9121   主从各一
 ```
 
-告警规则 12 条，分两组：
+告警规则 13 条，分两组：
 
 | 组 | 规则 | 覆盖 |
 |---|---|---|
 | `node-basic` | NodeDown / DiskWillFull / InodeWillFull / HighLoad / HighMemory / DiskIOSaturated | 主机层 |
-| `data-layer` | MySQLDown / MySQLReplicationStopped / MySQLReplicationLag / RedisDown / RedisRDBFailed / RedisMemoryHigh | 数据层 |
+| `data-layer` | TargetDown / MySQLDown / MySQLReplicationStopped / MySQLReplicationLag / RedisDown / RedisRDBFailed / RedisMemoryHigh | 抓取自身 + 数据层 |
 
 告警链路完整：Prometheus 触发 → Alertmanager 路由 → webhook 接收器落盘（`/opt/alert-webhook/logs/`）。
 Alertmanager 只做了「能送达」，没接企业微信/钉钉/邮件——生产环境替换 `receivers` 一段即可，`route` 与 `inhibit_rules` 不用动。

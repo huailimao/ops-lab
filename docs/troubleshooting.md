@@ -12,7 +12,7 @@
 | 监控 | Prometheus v2.51.0 + Alertmanager v0.27.0 + Grafana 10.4.2（docker compose） |
 | 数据层 | MySQL 8.0.46 一主一从（GTID）+ Redis 6.2.24 主从 + 3 哨兵（`.237`–`.239`） |
 | 巡检 | `/opt/ops-lab/check.sh`，8 类指标，末行 `RESULT <host> warn=N` |
-| 告警规则 | 12 条：node-basic 6 条 + data-layer 6 条 |
+| 告警规则 | 13 条：node-basic 6 条 + data-layer 7 条 |
 
 ---
 

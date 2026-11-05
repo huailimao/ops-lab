@@ -74,6 +74,18 @@ groups:
 
   - name: data-layer
     rules:
+      # 抓取失败：比「指标异常」更该先处理
+      # 目标 down 时 mysql_up / redis_up 这些指标压根不存在，
+      # 所有依赖它们的规则都不会触发 —— 监控自己瞎了没人知道
+      - alert: TargetDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: P2
+        annotations:
+          summary: "{{ $labels.instance }} ({{ $labels.job }}) 抓取失败"
+          description: "Prometheus 连续 5 分钟抓不到该目标。先确认 exporter 是否在跑、端口是否被防火墙或安全组挡住。注意 NodeDown 触发时会抑制本条（同一实例）。"
+
       # 实例不可用：exporter 连不上 mysqld
       - alert: MySQLDown
         expr: mysql_up == 0
