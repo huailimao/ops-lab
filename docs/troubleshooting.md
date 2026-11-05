@@ -473,3 +473,37 @@ ssh -i /root/.ssh/id_rsa root@192.168.1.227 true         # → Permission denied
 - 「加固完成」以**逐台逐项的生效值**为准（`sshd -T` / `sysctl -a` / `firewall-cmd --list-all`），不以「playbook 返回 ok」为准
 - 幂等 + 单一入口能消灭「漏跑」，流程文档不能 —— 文档写「记得都跑一遍」的那一刻，就已经注定会被漏掉
 - 配置漂移最爱藏在**分批扩容**里：第一批手工做全了，第二批只做了当下必须做的那一步
+
+---
+
+# 附录：演练取证
+
+四组演练的原始截图，存于仓库根目录 `evidence/`。文件名前缀与案例编号对应（A=案例 1，B=案例 2，C=案例 3，D=案例 4）。
+
+| 文件 | 对应案例 | 截图内容 |
+|---|---|---|
+| `fault-A1-up-drop.png` | 1 | `up{instance="192.168.1.227:9100"}` 在 19:23 由 `1` 垂直跌到 `0` |
+| `fault-A2-up-zero.png` | 1 | `up == 0` 全量查询：21 个目标里仅此一条为 0，其余不受影响 |
+| `fault-A3-targets-down.png` | 1 | `/targets` 页标题 `node (19/20 up)`，Error 列 `connect: connection refused` |
+| `fault-B1-alert-firing.png` | 2 | `/alerts` 页 `Inactive(5) Pending(0) Firing(1)`，只有 `DiskWillFull` 触发，其余 5 条规则无误报 |
+| `fault-B2-disk-table.png` | 2 | Table 视图 20 行数值对比：227 为 `83.35`，其余 19 台 `26.94` |
+| `fault-C3-alert-firing.png` | 3 | `HighLoad` FIRING，`Active Since 2026-11-05T12:29:39Z`、`Value 9.02`，其余 5 条 inactive |
+| `fault-D3-sshfail-warn.png` | 4 | 巡检脚本 `SSH_FAIL count=123 WARN`、`RESULT agg-02 warn=1` |
+| `fault-D2-ban-verified.png` | 4 | 封禁 `192.168.1.223` 后连接由 `Permission denied` 变为 `Connection timed out` |
+| `fault-D0-loopback-ineffective.png` | 8 | **反例**：封 `127.0.0.1` 规则下发成功但照样能认证（loopback 不走 filter） |
+
+**取证流程（顺序不可颠倒）**
+
+```
+制造故障 → 三视角观测（Prometheus 指标 / 巡检脚本 / 系统命令）
+        → 观察告警状态 pending → firing
+        → 截图
+        → 恢复
+        → 确认归零（targets up、告警数 0、指标回落）
+```
+
+最容易犯的错是**先恢复再截图**：曲线回到基线，只剩一条平线，等于没有证据。同理，负载类故障恢复后 `load1` 是指数衰减，要等 1–2 分钟才回落到阈值以下，这期间告警仍是 firing 属正常。
+
+**为什么截图要保留「其他规则 inactive」的部分**
+
+只截触发的那一条，无法排除「所有规则都在乱报」的可能。`Inactive(5) Firing(1)` 这个整体视图同时证明了两件事：告警触发了，并且**没有误报** —— 这是被追问「你怎么验证告警规则本身是对的」时最直接的答案。

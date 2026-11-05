@@ -210,7 +210,11 @@ prometheus  × 1    localhost:9090
 │   └── prometheus.yml         # 20 台抓取目标 + 6 条告警规则
 ├── docs/
 │   ├── architecture.md        # 分层设计、安全组矩阵、扩容流程
-│   └── troubleshooting.md     # 故障记录
+│   └── troubleshooting.md     # 12 个真实故障 + 演练取证附录
+├── evidence/                  # 四组故障演练的原始截图
+│   ├── fault-A1-up-drop.png
+│   ├── fault-B2-disk-table.png
+│   └── ...
 └── reports/
     └── sample-check.log       # 巡检输出样例（IP 已脱敏）
 ```
