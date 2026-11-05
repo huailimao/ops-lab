@@ -1,0 +1,358 @@
+
+==================================================================
+ 0. 元信息
+==================================================================
+生成时间   : 2026-11-05 22:08:19 CST
+生成位置   : bastion (192.168.1.222)
+仓库 commit: 6f3a586 feat(alerts): 补 TargetDown，抓取失败本身要能被发现
+最后推送   : 2026-11-05 21:53
+仓库文件数 : 40
+
+==================================================================
+ 1. 资产清单（20 台）
+==================================================================
+127.0.0.1 | CHANGED | rc=0 >>
+bastion
+2
+Mem:           1871         982         115           2         929         888
+/dev/vda3        40G   11G   27G  29% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.226 | CHANGED | rc=0 >>
+app-01
+2
+Mem:           1871         371        1092           1         554        1499
+/dev/vda3        40G  8.8G   29G  24% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.223 | CHANGED | rc=0 >>
+iZbp15vu3s1qoapjq2nqtkZ
+2
+Mem:           1871         376        1084           1         555        1494
+/dev/vda3        40G  8.8G   29G  24% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.225 | CHANGED | rc=0 >>
+app-01
+2
+Mem:           1871         371        1091           1         554        1499
+/dev/vda3        40G  8.8G   29G  24% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.224 | CHANGED | rc=0 >>
+iZbp15vu3s1qoapjq2nqtlZ
+2
+Mem:           1871         375        1087           1         554        1495
+/dev/vda3        40G  8.8G   29G  24% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.227 | CHANGED | rc=0 >>
+agg-02
+2
+Mem:           1871         366        1095           1         555        1504
+/dev/vda3        40G  8.8G   29G  24% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.228 | CHANGED | rc=0 >>
+agg-02
+2
+Mem:           1871         362        1105           1         548        1508
+/dev/vda3        40G  8.8G   29G  24% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.231 | CHANGED | rc=0 >>
+agg-02
+2
+Mem:           1871         366        1101           1         548        1504
+/dev/vda3        40G  8.8G   29G  24% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.229 | CHANGED | rc=0 >>
+agg-02
+2
+Mem:           1871         372        1095           1         548        1498
+/dev/vda3        40G  8.8G   29G  24% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.230 | CHANGED | rc=0 >>
+agg-02
+2
+Mem:           1871         369        1098           1         547        1501
+/dev/vda3        40G  8.8G   29G  24% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.235 | CHANGED | rc=0 >>
+agg-02
+2
+Mem:           1871         363        1105           1         547        1507
+/dev/vda3        40G  8.8G   29G  24% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.234 | CHANGED | rc=0 >>
+agg-02
+2
+Mem:           1871         366        1101           1         548        1504
+/dev/vda3        40G  8.8G   29G  24% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.233 | CHANGED | rc=0 >>
+agg-02
+2
+Mem:           1871         368        1099           1         547        1502
+/dev/vda3        40G  8.8G   29G  24% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.232 | CHANGED | rc=0 >>
+agg-02
+2
+Mem:           1871         367        1100           1         548        1503
+/dev/vda3        40G  8.8G   29G  24% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.238 | CHANGED | rc=0 >>
+agg-02
+2
+Mem:           1871         842         253           1         931        1028
+/dev/vda3        40G  9.2G   29G  25% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.237 | CHANGED | rc=0 >>
+agg-02
+2
+Mem:           1871         814         282           1         929        1056
+/dev/vda3        40G  9.2G   29G  25% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.239 | CHANGED | rc=0 >>
+agg-02
+2
+Mem:           1871         377        1073           1         569        1493
+/dev/vda3        40G  8.8G   29G  24% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.236 | CHANGED | rc=0 >>
+agg-02
+2
+Mem:           1871         371        1096           1         548        1499
+/dev/vda3        40G  8.8G   29G  24% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.241 | CHANGED | rc=0 >>
+agg-02
+2
+Mem:           1871         372        1094           1         549        1498
+/dev/vda3        40G  8.8G   29G  24% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+192.168.1.240 | CHANGED | rc=0 >>
+agg-02
+2
+Mem:           1871         366        1102           1         547        1504
+/dev/vda3        40G  8.8G   29G  24% /
+PRETTY_NAME="Alibaba Cloud Linux 3.2104 U12.2 (OpenAnolis Edition)"
+
+==================================================================
+ 2. Prometheus 抓取目标
+==================================================================
+总计 25 个，up=21，down=4
+
+DOWN  mysql      http://192.168.1.237:9104/metrics
+DOWN  mysql      http://192.168.1.238:9104/metrics
+OK    node       http://192.168.1.222:9100/metrics
+OK    node       http://192.168.1.223:9100/metrics
+OK    node       http://192.168.1.224:9100/metrics
+OK    node       http://192.168.1.225:9100/metrics
+OK    node       http://192.168.1.226:9100/metrics
+OK    node       http://192.168.1.227:9100/metrics
+OK    node       http://192.168.1.228:9100/metrics
+OK    node       http://192.168.1.229:9100/metrics
+OK    node       http://192.168.1.230:9100/metrics
+OK    node       http://192.168.1.231:9100/metrics
+OK    node       http://192.168.1.232:9100/metrics
+OK    node       http://192.168.1.233:9100/metrics
+OK    node       http://192.168.1.234:9100/metrics
+OK    node       http://192.168.1.235:9100/metrics
+OK    node       http://192.168.1.236:9100/metrics
+OK    node       http://192.168.1.237:9100/metrics
+OK    node       http://192.168.1.238:9100/metrics
+OK    node       http://192.168.1.239:9100/metrics
+OK    node       http://192.168.1.240:9100/metrics
+OK    node       http://192.168.1.241:9100/metrics
+OK    prometheus http://localhost:9090/metrics
+DOWN  redis      http://192.168.1.237:9121/metrics
+DOWN  redis      http://192.168.1.238:9121/metrics
+
+down 明细（最后错误）：
+  http://192.168.1.237:9104/metrics -> Get "http://192.168.1.237:9104/metrics": context deadline exceeded
+  http://192.168.1.238:9104/metrics -> Get "http://192.168.1.238:9104/metrics": context deadline exceeded
+  http://192.168.1.237:9121/metrics -> Get "http://192.168.1.237:9121/metrics": context deadline exceeded
+  http://192.168.1.238:9121/metrics -> Get "http://192.168.1.238:9121/metrics": context deadline exceeded
+
+==================================================================
+ 3. 告警规则（13 条）
+==================================================================
+[data-layer]  interval=15
+   1. TargetDown                 for=300   up == 0
+   2. MySQLDown                  for=60    mysql_up == 0
+   3. MySQLReplicationStopped    for=120   mysql_slave_status_slave_io_running == 0 or mysql_slave_status_slave_sql_running
+   4. MySQLReplicationLag        for=180   mysql_slave_status_seconds_behind_master > 30
+   5. RedisDown                  for=60    redis_up == 0
+   6. RedisRDBFailed             for=300   redis_rdb_last_bgsave_status == 0
+   7. RedisMemoryHigh            for=300   redis_memory_used_bytes > 512 * 1024 * 1024
+[node-basic]  interval=15
+   8. NodeDown                   for=60    up{job="node"} == 0
+   9. DiskWillFull               for=300   (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay",mountpoint="/"} / node_file
+  10. InodeWillFull              for=300   (node_filesystem_files_free{fstype!~"tmpfs|overlay",mountpoint="/"} / node_files
+  11. HighLoad                   for=300   node_load1 > on (instance) count by (instance) (node_cpu_seconds_total{mode="idl
+  12. HighMemory                 for=300   (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 90
+  13. DiskIOSaturated            for=300   rate(node_disk_io_time_seconds_total[5m]) > 0.9
+
+合计 13 条规则
+
+==================================================================
+ 4. 当前告警（firing/pending）
+==================================================================
+firing    TargetDown     192.168.1.238:9104  since 2026-11-05T13:53:12.982411686Z
+firing    TargetDown     192.168.1.237:9104  since 2026-11-05T13:53:12.982411686Z
+firing    TargetDown     192.168.1.238:9121  since 2026-11-05T13:53:12.982411686Z
+firing    TargetDown     192.168.1.237:9121  since 2026-11-05T13:53:12.982411686Z
+
+==================================================================
+ 5. MySQL 主从（GTID）
+==================================================================
+--- 主库 192.168.1.237 ---
+192.168.1.237 | CHANGED | rc=0 >>
+server_id	gtid_mode	read_only
+1	ON	0
+*************************** 1. row ***************************
+             File: mysql-bin.000003
+         Position: 2280
+     Binlog_Do_DB: 
+ Binlog_Ignore_DB: 
+Executed_Gtid_Set: 4cc295f5-d91e-11f1-afbf-00163e625dd6:1-14
+--- 从库 192.168.1.238 ---
+192.168.1.238 | CHANGED | rc=0 >>
+             Slave_IO_Running: Yes
+            Slave_SQL_Running: Yes
+                   Last_Error: 
+        Seconds_Behind_Master: 0
+                Auto_Position: 1
+--- 复制验证数据（两端应一致）---
+192.168.1.238 | CHANGED | rc=0 >>
+id	note	ts
+1	gtid-repl-ok	2026-11-05 21:42:31
+192.168.1.237 | CHANGED | rc=0 >>
+id	note	ts
+1	gtid-repl-ok	2026-11-05 21:42:31
+
+==================================================================
+ 6. Redis 主从与哨兵
+==================================================================
+--- 主从角色 ---
+192.168.1.237 | CHANGED | rc=0 >>
+role:master
+connected_slaves:1
+192.168.1.238 | CHANGED | rc=0 >>
+role:slave
+master_link_status:up
+slave_repl_offset:347397
+connected_slaves:0
+--- 哨兵共识（3 节点）---
+192.168.1.238 | CHANGED | rc=0 >>
+master=192.168.1.237 6379  quorum=OK 3 usable Sentinels. Quorum and failover authorization can be reached
+192.168.1.239 | CHANGED | rc=0 >>
+master=192.168.1.237 6379  quorum=OK 3 usable Sentinels. Quorum and failover authorization can be reached
+192.168.1.237 | CHANGED | rc=0 >>
+master=192.168.1.237 6379  quorum=OK 3 usable Sentinels. Quorum and failover authorization can be reached
+
+==================================================================
+ 7. 巡检汇总（20 台 check.sh）
+==================================================================
+127.0.0.1  RESULT bastion warn=0
+192.168.1.223  RESULT iZbp15vu3s1qoapjq2nqtkZ warn=0
+192.168.1.224  RESULT iZbp15vu3s1qoapjq2nqtlZ warn=0
+192.168.1.225  RESULT app-01 warn=0
+192.168.1.226  RESULT app-01 warn=0
+192.168.1.227  RESULT agg-02 warn=1
+192.168.1.228  RESULT agg-02 warn=0
+192.168.1.229  RESULT agg-02 warn=0
+192.168.1.230  RESULT agg-02 warn=0
+192.168.1.231  RESULT agg-02 warn=0
+192.168.1.232  RESULT agg-02 warn=0
+192.168.1.233  RESULT agg-02 warn=0
+192.168.1.234  RESULT agg-02 warn=0
+192.168.1.235  RESULT agg-02 warn=0
+192.168.1.236  RESULT agg-02 warn=0
+192.168.1.237  RESULT agg-02 warn=0
+192.168.1.238  RESULT agg-02 warn=0
+192.168.1.239  RESULT agg-02 warn=0
+192.168.1.240  RESULT agg-02 warn=0
+192.168.1.241  RESULT agg-02 warn=0
+
+汇总：warn=0 的节点数 = 19 / 20
+注：本环境 15 台 hostname 均为 agg-02（扩容时未逐台重命名），定位请以左侧 IP 为准。
+
+==================================================================
+ 8. 容器与镜像
+==================================================================
+NAMES           IMAGE                       STATUS
+grafana         grafana/grafana:10.4.2      Up 34 minutes
+prometheus      prom/prometheus:v2.51.0     Up 34 minutes
+alert-webhook   python:3.12-alpine          Up 34 minutes
+alertmanager    prom/alertmanager:v0.27.0   Up 34 minutes
+
+镜像：
+docker.m.daocloud.io/library/python:3.12-alpine  48.9MB
+python:3.12-alpine  48.9MB
+docker.m.daocloud.io/oliver006/redis_exporter:v1.62.0  8.52MB
+grafana/grafana:10.4.2  429MB
+docker.m.daocloud.io/grafana/grafana:10.4.2  429MB
+prom/prometheus:v2.51.0  262MB
+docker.m.daocloud.io/prom/prometheus:v2.51.0  262MB
+prom/alertmanager:v0.27.0  70.2MB
+docker.m.daocloud.io/prom/alertmanager:v0.27.0  70.2MB
+docker.m.daocloud.io/prom/mysqld-exporter:v0.15.1  18.6MB
+
+==================================================================
+ 9. 加固与防火墙生效值（抽样 + 全量计数）
+==================================================================
+--- PermitRootLogin 全量统计 ---
+     20 permitrootlogin no
+--- 各节点放行端口 ---
+bastion
+9100/tcp
+iZbp15vu3s1qoapjq2nqtkZ
+9100/tcp
+app-01
+9100/tcp
+app-01
+9100/tcp
+iZbp15vu3s1qoapjq2nqtlZ
+9100/tcp
+agg-02
+9100/tcp
+agg-02
+9100/tcp
+agg-02
+9100/tcp
+agg-02
+9100/tcp
+agg-02
+9100/tcp
+agg-02
+9100/tcp
+agg-02
+9100/tcp
+agg-02
+9100/tcp
+agg-02
+9100/tcp
+agg-02
+9100/tcp
+agg-02
+3306/tcp 9100/tcp
+agg-02
+9100/tcp
+agg-02
+9100/tcp
+agg-02
+9100/tcp
+agg-02
+9100/tcp
+
+==================================================================
+ 10. 结项说明
+==================================================================
+本项目范围到此为止，环境在快照生成后即释放。
+
+关于 4 个 down 的抓取目标（本快照中最显眼的非绿项）：
+  - 对象：192.168.1.237/238 的 :9104 (mysqld) 与 :9121 (redis)
+  - 原因：sg-app 入方向只对 sg-bastion 放行了 9100，未放行 9104/9121
+  - 证据：exporter 在本机健康（mysql_up=1、redis_up=1），仅剩这一跳被安全组阻断
+  - 处置：这是已定性的环境约束（详见 troubleshooting 案例 10），不是未排查的故障；
+          因环境即将释放，不再补规则
+
+==================================================================
+ END OF SNAPSHOT
+==================================================================
