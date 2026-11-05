@@ -1,0 +1,18 @@
+- hosts: all
+  become: yes
+  tasks:
+    - name: 放行 9100，仅限内网网段
+      firewalld:
+        rich_rule: 'rule family="ipv4" source address="192.168.1.0/24" port port="9100" protocol="tcp" accept'
+        permanent: yes
+        immediate: yes
+        state: enabled
+        zone: public
+
+    - name: 确认规则已生效
+      command: firewall-cmd --list-rich-rules
+      register: r
+      changed_when: false
+
+    - debug:
+        var: r.stdout_lines

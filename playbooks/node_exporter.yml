@@ -1,0 +1,81 @@
+---
+# 批量部署 node_exporter（二进制从跳板机分发，避免每台重复下载）
+# 前置：跳板机上已把 node_exporter-1.7.0.linux-amd64.tar.gz 放在 /opt/ops-pkg/
+# 执行：cd /root/ops-lab && ansible-playbook -i inventory playbooks/node_exporter.yml
+
+- name: 部署 node_exporter
+  hosts: all
+  become: yes
+  tasks:
+    - name: 创建专用系统用户
+      user:
+        name: node_exporter
+        shell: /sbin/nologin
+        system: yes
+        create_home: no
+
+    - name: 分发二进制 tar 包
+      copy:
+        src: /opt/ops-pkg/node_exporter-1.7.0.linux-amd64.tar.gz
+        dest: /tmp/node_exporter.tar.gz
+        mode: '0644'
+
+    - name: 解压到 /opt
+      unarchive:
+        src: /tmp/node_exporter.tar.gz
+        dest: /opt
+        remote_src: yes
+
+    - name: 安装二进制到 /usr/local/bin
+      copy:
+        src: /opt/node_exporter-1.7.0.linux-amd64/node_exporter
+        dest: /usr/local/bin/node_exporter
+        mode: '0755'
+        remote_src: yes
+
+    - name: 写 systemd unit
+      copy:
+        dest: /etc/systemd/system/node_exporter.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Prometheus Node Exporter
+          Documentation=https://github.com/prometheus/node_exporter
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          User=node_exporter
+          Group=node_exporter
+          Type=simple
+          ExecStart=/usr/local/bin/node_exporter
+          Restart=on-failure
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: 启动并设置开机自启
+      systemd:
+        name: node_exporter
+        daemon_reload: yes
+        state: started
+        enabled: yes
+
+    - name: 放行 9100 端口
+      firewalld:
+        port: 9100/tcp
+        permanent: yes
+        state: enabled
+        immediate: yes
+      ignore_errors: yes
+
+    - name: 验证指标可抓取
+      uri:
+        url: "http://127.0.0.1:9100/metrics"
+        return_content: no
+        status_code: 200
+      register: ne_check
+      retries: 3
+      delay: 3
+      until: ne_check is succeeded
