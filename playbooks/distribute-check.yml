@@ -1,0 +1,24 @@
+- hosts: all
+  become: yes
+  tasks:
+    - name: 创建 /opt/ops-lab 目录
+      file:
+        path: /opt/ops-lab
+        state: directory
+        mode: '0755'
+
+    - name: 分发 check.sh
+      copy:
+        src: "{{ playbook_dir }}/../scripts/check.sh"
+        dest: /opt/ops-lab/check.sh
+        mode: '0755'
+
+    - name: 立即执行一次，确认脚本可运行
+      command: /opt/ops-lab/check.sh
+      register: r
+      changed_when: false
+      failed_when: false
+
+    - name: 打印每台的 RESULT 行
+      debug:
+        msg: "{{ r.stdout_lines | select('match', 'RESULT') | list }}"

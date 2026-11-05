@@ -1,70 +1,14 @@
-127.0.0.1 | CHANGED | rc=0 >>
-DISK       / 26%                                  OK
-DISK       /boot/efi 3%                           OK
-INODE      / 5%                                   OK
-INODE      /boot/efi -%                           OK
-LOAD       1m=0.00 cores=2                        OK
-MEM        41%                                    OK
-SVC        sshd=active                            OK
-SVC        firewalld=active                       OK
-SVC        chronyd=active                         OK
-PORT       listen=2                               OK
-SSH_FAIL   count=0                                OK
-REBOOT     no                                     OK
-RESULT bastion warn=0/usr/local/bin/check.sh: line 20: [: -: integer expression expected
-10.0.0.x | CHANGED | rc=0 >>
 DISK       / 24%                                  OK
 DISK       /boot/efi 3%                           OK
 INODE      / 4%                                   OK
-INODE      /boot/efi -%                           OK
-LOAD       1m=0.00 cores=2                        OK
-MEM        19%                                    OK
+LOAD       1m=0.07 cores=2                        OK
+MEM        18%                                    OK
 SVC        sshd=active                            OK
 SVC        firewalld=active                       OK
 SVC        chronyd=active                         OK
-PORT       listen=2                               OK
-SSH_FAIL   count=0                                OK
+SVC        node_exporter=active                   OK
+PORT       port=22                                OK
+PORT       port=9100                              OK
+SSH_FAIL   count=4                                OK
 REBOOT     no                                     OK
-RESULT iZbp15vu3s1qoapjq2nqtkZ warn=0/usr/local/bin/check.sh: line 20: [: -: integer expression expected
-10.0.0.x | CHANGED | rc=0 >>
-DISK       / 24%                                  OK
-DISK       /boot/efi 3%                           OK
-INODE      / 4%                                   OK
-INODE      /boot/efi -%                           OK
-LOAD       1m=0.00 cores=2                        OK
-MEM        19%                                    OK
-SVC        sshd=active                            OK
-SVC        firewalld=active                       OK
-SVC        chronyd=active                         OK
-PORT       listen=2                               OK
-SSH_FAIL   count=0                                OK
-REBOOT     no                                     OK
-RESULT app-01 warn=0/usr/local/bin/check.sh: line 20: [: -: integer expression expected
-10.0.0.x | CHANGED | rc=0 >>
-DISK       / 24%                                  OK
-DISK       /boot/efi 3%                           OK
-INODE      / 4%                                   OK
-INODE      /boot/efi -%                           OK
-LOAD       1m=0.33 cores=2                        OK
-MEM        19%                                    OK
-SVC        sshd=active                            OK
-SVC        firewalld=active                       OK
-SVC        chronyd=active                         OK
-PORT       listen=2                               OK
-SSH_FAIL   count=0                                OK
-REBOOT     no                                     OK
-RESULT iZbp15vu3s1qoapjq2nqtlZ warn=0/usr/local/bin/check.sh: line 20: [: -: integer expression expected
-10.0.0.x | CHANGED | rc=0 >>
-DISK       / 24%                                  OK
-DISK       /boot/efi 3%                           OK
-INODE      / 4%                                   OK
-INODE      /boot/efi -%                           OK
-LOAD       1m=0.00 cores=2                        OK
-MEM        19%                                    OK
-SVC        sshd=active                            OK
-SVC        firewalld=active                       OK
-SVC        chronyd=active                         OK
-PORT       listen=2                               OK
-SSH_FAIL   count=0                                OK
-REBOOT     no                                     OK
-RESULT app-01 warn=0/usr/local/bin/check.sh: line 20: [: -: integer expression expected
+RESULT agg-02 warn=0
