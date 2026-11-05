@@ -1,11 +1,11 @@
-# Prometheus + Grafana 监控中心
+# Prometheus + Alertmanager + Grafana 监控中心
 #
 # 使用：
 #   cp .env.example .env && vim .env      # 设置 Grafana 管理员密码
 #   docker compose up -d
-#   浏览器通过 SSH 隧道访问：ssh -N ops-prom  →  http://localhost:9090 / :3000
+#   浏览器通过 SSH 隧道访问：ssh -N ops-prom  →  http://localhost:9090 / :3000 / :9093
 #
-# 两个端口都只绑 127.0.0.1：Prometheus 无内置认证，绝不可暴露公网。
+# 所有端口都只绑 127.0.0.1：Prometheus / Alertmanager 均无内置认证，绝不可暴露公网。
 
 services:
   prometheus:
@@ -25,6 +25,35 @@ services:
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=15d
       - --web.enable-lifecycle      # 开启 POST /-/reload 热加载
+    depends_on:
+      - alertmanager
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: alertmanager
+    restart: unless-stopped
+    user: root
+    ports:
+      - "127.0.0.1:9093:9093"
+    volumes:
+      - /opt/alertmanager:/etc/alertmanager:ro
+      - /opt/alertmanager/data:/alertmanager   # 静默规则、通知日志持久化
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.external-url=http://127.0.0.1:9093
+
+  # 告警落盘接收器：证明「规则触发 -> 通知送达」这条链路真的通
+  # 放在 compose 内而不是宿主机 systemd，是为了用服务名互访，
+  # 不必把端口绑到 0.0.0.0 再用防火墙兜底
+  alert-webhook:
+    image: python:3.12-alpine
+    container_name: alert-webhook
+    restart: unless-stopped
+    command: ["python", "/app/alert-webhook.py"]
+    volumes:
+      - /opt/alert-webhook:/app:ro
+      - /opt/alert-webhook/logs:/data
 
   grafana:
     image: grafana/grafana:10.4.2
@@ -37,5 +66,7 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - /opt/grafana:/var/lib/grafana
+      # 数据源与看板由配置文件声明，容器重建后自动恢复，不靠手工点
+      - /opt/grafana-provisioning:/etc/grafana/provisioning:ro
     depends_on:
       - prometheus

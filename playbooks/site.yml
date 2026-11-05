@@ -18,3 +18,9 @@
 - import_playbook: firewall-9100.yml   # 放行 9100，仅内网网段
 - import_playbook: node_exporter.yml   # 监控探针
 - import_playbook: distribute-check.yml  # 巡检脚本分发到 /opt/ops-lab
+- import_playbook: db-install.yml      # 数据层 MySQL / Redis / 哨兵（仅 db 与 redis_sentinel 组）
+- import_playbook: exporters.yml       # mysqld_exporter / redis_exporter（仅 db 组）
+
+# db-replica.yml 不在这里：它是「建立复制关系」的一次性初始化，
+# 不是「收敛到期望状态」。主从切换后重跑它会强行把拓扑拉回初始方向。
+# 需要时单独执行：ansible-playbook -i inventory playbooks/db-replica.yml

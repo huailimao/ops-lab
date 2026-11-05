@@ -22,10 +22,21 @@
         content: |
           net.ipv4.tcp_syncookies = 1
           net.ipv4.tcp_max_syn_backlog = 8192
-          net.ipv4.ip_forward = 0
           net.ipv4.conf.all.accept_redirects = 0
           vm.swappiness = 10
 
     - name: 应用内核参数
       command: sysctl --system
       changed_when: false
+
+    # IP 转发必须按角色区分：跳板机跑容器（docker 网桥需要转发），
+    # 其余节点关闭转发。原先这里写死 0，site.yml 一跑就把跳板机的
+    # 容器网络打断，表现为监控 target 全部 context deadline exceeded。
+    - name: 设置 IP 转发（跳板机开启，业务节点关闭）
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: "{{ '1' if inventory_hostname in groups['bastion'] else '0' }}"
+        sysctl_file: /etc/sysctl.d/99-ops.conf
+        sysctl_set: true
+        reload: true
+        state: present

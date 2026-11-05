@@ -1,0 +1,139 @@
+# 告警规则
+# 位置：/opt/prometheus/rules.yml
+# 改完执行：curl -X POST http://localhost:9090/-/reload  或 systemctl restart prometheus
+
+groups:
+  - name: node-basic
+    rules:
+      # 节点失联
+      - alert: NodeDown
+        expr: up{job="node"} == 0
+        for: 1m
+        labels:
+          severity: P1
+        annotations:
+          summary: "{{ $labels.instance }} 失联超过 1 分钟"
+          description: "Prometheus 连续 1 分钟抓不到该节点指标，先确认主机是否存活、node_exporter 是否在跑。"
+
+      # 根分区剩余空间不足
+      - alert: DiskWillFull
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}
+           / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}) * 100 < 20
+        for: 5m
+        labels:
+          severity: P2
+        annotations:
+          summary: '{{ $labels.instance }} 根分区剩余不足 20%'
+          description: '当前剩余 {{ $value | printf "%.1f" }}%，检查 /var/log、/var/cache/dnf 是否堆积。'
+
+      # inode 耗尽（磁盘还有空间但写不了文件，最容易被忽略）
+      - alert: InodeWillFull
+        expr: |
+          (node_filesystem_files_free{mountpoint="/",fstype!~"tmpfs|overlay"}
+           / node_filesystem_files{mountpoint="/",fstype!~"tmpfs|overlay"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: P2
+        annotations:
+          summary: "{{ $labels.instance }} 根分区 inode 剩余不足 15%"
+          description: "小文件堆积（日志、session、缓存）。df -i 确认后清理。"
+
+      # 负载高于核数
+      - alert: HighLoad
+        expr: |
+          node_load1 > on(instance) count by(instance) (node_cpu_seconds_total{mode="idle"})
+        for: 5m
+        labels:
+          severity: P3
+        annotations:
+          summary: "{{ $labels.instance }} 1 分钟负载持续高于核数"
+          description: "结合 top 看是 us 高（计算密集）还是 wa 高（I/O 阻塞）。"
+
+      # 内存使用率
+      - alert: HighMemory
+        expr: |
+          (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 90
+        for: 5m
+        labels:
+          severity: P2
+        annotations:
+          summary: "{{ $labels.instance }} 内存使用率超过 90%"
+          description: "检查是否有进程泄漏，或 OOM 前兆（dmesg | grep -i kill）。"
+
+      # 磁盘 I/O 饱和
+      - alert: DiskIOSaturated
+        expr: |
+          rate(node_disk_io_time_seconds_total[5m]) > 0.9
+        for: 5m
+        labels:
+          severity: P2
+        annotations:
+          summary: "{{ $labels.instance }} 磁盘 I/O 利用率超过 90%"
+          description: "iostat -x 1 看 %util 和 await，定位是哪个进程（iotop / pidstat -d）。"
+
+  - name: data-layer
+    rules:
+      # 实例不可用：exporter 连不上 mysqld
+      - alert: MySQLDown
+        expr: mysql_up == 0
+        for: 1m
+        labels:
+          severity: P1
+        annotations:
+          summary: "{{ $labels.instance }} MySQL 不可用"
+          description: "exporter 连不上 mysqld。先看 systemctl status mysqld，再看是不是 exporter 账号被改。"
+
+      # 复制线程停止：IO 或 SQL 任一线程不是 Yes
+      # 指标名来自 mysqld_exporter 0.15.1，不是文档里抄的
+      - alert: MySQLReplicationStopped
+        expr: |
+          mysql_slave_status_slave_io_running == 0
+          or mysql_slave_status_slave_sql_running == 0
+        for: 2m
+        labels:
+          severity: P1
+        annotations:
+          summary: "{{ $labels.instance }} 复制线程停止"
+          description: "SHOW REPLICA STATUS 里的 Last_IO_Error / Last_SQL_Error 会给原因，常见是密码变更、binlog 被清理、主键冲突。"
+
+      # 复制延迟
+      - alert: MySQLReplicationLag
+        expr: mysql_slave_status_seconds_behind_master > 30
+        for: 3m
+        labels:
+          severity: P2
+        annotations:
+          summary: "{{ $labels.instance }} 复制延迟 {{ $value }} 秒"
+          description: "从库落后主库超过 30 秒。看主库写入突增、从库单线程回放、大事务或锁等待。"
+
+      # Redis 不可用
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: P1
+        annotations:
+          summary: "{{ $labels.instance }} Redis 不可用"
+          description: "exporter 连不上 redis。注意 redis 设了 requirepass，密码改过会导致 exporter 认证失败。"
+
+      # 持久化失败：RDB 最近一次 bgsave 没有成功
+      - alert: RedisRDBFailed
+        expr: redis_rdb_last_bgsave_status == 0
+        for: 5m
+        labels:
+          severity: P2
+        annotations:
+          summary: "{{ $labels.instance }} Redis RDB 持久化失败"
+          description: "常见原因：磁盘满、fork 失败（内存不足）、dir 权限不对。redis-cli info persistence 看 rdb_last_bgsave_status。"
+
+      # 内存占用（实验环境单机 1.8G，阈值 512M 已偏高）
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes > 512 * 1024 * 1024
+        for: 5m
+        labels:
+          severity: P2
+        annotations:
+          summary: "{{ $labels.instance }} Redis 内存占用 {{ $value | humanize1024 }}B"
+          description: "结合 maxmemory 策略看是否会 OOM。未设 maxmemory 时 Redis 会一直吃内存直到被内核杀掉。"
+

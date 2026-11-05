@@ -1,0 +1,13 @@
+# Grafana 数据源自动注册
+# 位置：/opt/grafana-provisioning/datasources/prometheus.yml
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090        # compose 内服务名，不走宿主机端口
+    isDefault: true
+    editable: false                    # 禁止在 UI 里改，避免与配置文件漂移
+    jsonData:
+      timeInterval: 15s                # 与 scrape_interval 对齐，否则 $__rate_interval 算不准

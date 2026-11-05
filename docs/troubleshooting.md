@@ -9,9 +9,10 @@
 | 节点 | 阿里云 ECS 20 台：1 bastion + 2 web + 17 app（`192.168.1.222-241`） |
 | 系统 | Alibaba Cloud Linux 3（Python 3.6.8） |
 | 编排 | Ansible，`ops` 用户 + 密钥登录 + sudo 免密 |
-| 监控 | Prometheus v2.51.0 + Grafana 10.4.2（docker compose） |
+| 监控 | Prometheus v2.51.0 + Alertmanager v0.27.0 + Grafana 10.4.2（docker compose） |
+| 数据层 | MySQL 8.0.46 一主一从（GTID）+ Redis 6.2.24 主从 + 3 哨兵（`.237`–`.239`） |
 | 巡检 | `/opt/ops-lab/check.sh`，8 类指标，末行 `RESULT <host> warn=N` |
-| 告警规则 | 6 条：`NodeDown` / `DiskWillFull` / `InodeWillFull` / `HighLoad` / `HighMemory` / `DiskIOSaturated` |
+| 告警规则 | 12 条：node-basic 6 条 + data-layer 6 条 |
 
 ---
 
@@ -345,6 +346,15 @@ ssh 192.168.1.223 'curl -m 3 http://192.168.1.225:9100/metrics'   # http=000
 
 入方向用「安全组」而非「IP 段」作为授权对象，后续扩容新机器无需改规则 —— 这也是为什么 20 台扩容时安全组零改动。
 
+**同类问题再次出现（数据层）**
+
+接数据层监控时，`9104`（mysqld_exporter）与 `9121`（redis_exporter）从跳板机访问返回 `curl: (7)` / `http=000`，
+而宿主机 `firewalld` 已按 `192.168.1.0/24` 放行 —— 又是同一类：**`sg-app` 入方向只授权了 `9100`**。
+
+处置：在 `sg-app` 入方向补两条，授权对象同样选 `sg-bastion`。规则没加之前，
+`/targets` 上这 4 个数据层目标会一直 `down`，而 `mysql_up` 这类指标压根不存在，告警不会响 ——
+**抓取目标 down 本身必须有一条告警**，否则「监控自己瞎了」没人知道（这是本次遗留的改进项）。
+
 ---
 
 ## 11. Docker 镜像拉取静默回退到官方仓库
@@ -473,6 +483,212 @@ ssh -i /root/.ssh/id_rsa root@192.168.1.227 true         # → Permission denied
 - 「加固完成」以**逐台逐项的生效值**为准（`sshd -T` / `sysctl -a` / `firewall-cmd --list-all`），不以「playbook 返回 ok」为准
 - 幂等 + 单一入口能消灭「漏跑」，流程文档不能 —— 文档写「记得都跑一遍」的那一刻，就已经注定会被漏掉
 - 配置漂移最爱藏在**分批扩容**里：第一批手工做全了，第二批只做了当下必须做的那一步
+
+---
+
+## 13. 加固项把跳板机的容器网络打断了（`ip_forward=0`）
+
+**现象**
+
+把监控栈从手工 `docker run` 收归 compose 管理后，`/targets` 上 19 个 node 目标全部 `context deadline exceeded`，只有 Prometheus 自己和本机是 up。容器能解析 DNS、能连 `127.0.0.1`，就是到不了 `192.168.1.x`。
+
+**排查**
+
+```bash
+# 1. 容器内直接测目标
+docker run --rm --network container:prometheus python:3.12-alpine \
+  sh -c "wget -T 3 -qO- http://192.168.1.226:9100/metrics | head -1"
+# wget: download timed out
+
+# 2. 宿主机出口抓包
+tcpdump -ni eth0 'host 192.168.1.226 and port 9100'
+# 0 packets captured  ← 关键信号：包根本没到网卡出口
+
+# 3. 转发开关
+sysctl net.ipv4.ip_forward
+# net.ipv4.ip_forward = 0
+```
+
+**根因**
+
+`playbooks/init.yml` 里有一条面向业务节点的加固项写死在静态文件里：
+
+```yaml
+net.ipv4.ip_forward = 0
+```
+
+而 `site.yml` 对 `all` 执行 `sysctl --system`，**跳板机也在 `all` 里**。于是每次跑单一入口，跳板机的转发就被关闭一次，docker 网桥上的容器全部出不去。
+
+**修复**
+
+```yaml
+- name: 设置 IP 转发（跳板机开启，业务节点关闭）
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: "{{ '1' if inventory_hostname in groups['bastion'] else '0' }}"
+    sysctl_file: /etc/sysctl.d/99-ops.conf
+    sysctl_set: true
+    reload: true
+```
+
+同时把静态文件里那行删掉——两份配置来源必然漂移。
+
+**验证**
+
+重跑 `init.yml --limit 127.0.0.1`，`sysctl -n net.ipv4.ip_forward` 仍为 `1`，targets 全部恢复 up。
+
+**教训**
+
+- **`ip_forward=0` 与「规则挡包」的现象完全不同**：规则挡包能在 `eth0` 上抓到 SYN，内核不转发则一个包都抓不到。抓包零包是第一时间的判断依据
+- 加固项要**按角色**下发。同一条 sysctl 在业务节点是收紧，在跑容器的节点上就是自断网络
+- 这类问题在「单一入口」落地后才会暴露——以前 `init.yml` 只对 5 台跑，跳板机上的 Docker 没受影响
+
+---
+
+## 14. `exporter` 账号存在，却报 `Host '127.0.0.1' is not allowed`
+
+**现象**
+
+`mysqld_exporter` 起来了，但 `mysql_up 0`，日志：
+
+```
+Error 1130: Host '127.0.0.1' is not allowed to connect to this MySQL server
+```
+
+同时 `SELECT user,host FROM mysql.user` 里明明有 `exporter@localhost`。
+
+**根因**
+
+`my.cnf` 里为了加快认证关掉了反向解析：
+
+```ini
+skip-name-resolve
+```
+
+关掉之后 MySQL **不再把 `127.0.0.1` 反解成 `localhost`**，而账号建的是 `'exporter'@'localhost'`。通过 TCP 连进来的主机名被判为 `127.0.0.1`，匹配不上 `localhost`，直接拒绝。
+
+**修复**
+
+```sql
+CREATE USER 'exporter'@'127.0.0.1' IDENTIFIED BY '...' WITH MAX_USER_CONNECTIONS 3;
+GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'127.0.0.1';
+```
+
+**验证**
+
+```bash
+curl -s 127.0.0.1:9104/metrics | grep '^mysql_up'
+# mysql_up 1
+```
+
+**附带收获**
+
+从库没有手工建这个账号，但它自动出现了 —— 主库的 `CREATE USER` 是一条 DDL，随 binlog 复制到从库。这比 `SELECT 1` 更能证明复制链路是通的。
+
+---
+
+## 15. 手工 `docker run` 的容器与 compose 撞名，栈起不来
+
+**现象**
+
+```
+Error response from daemon: Conflict. The container name "/prometheus" is already in use
+```
+
+**根因**
+
+Prometheus 与 Grafana 最初是手工 `docker run` 起的，不属于任何 compose 项目。`docker compose up` 试图创建同名容器（并新建了自己的网络），于是命名冲突。
+
+**处理**
+
+```bash
+docker rm -f prometheus grafana alertmanager
+docker compose up -d
+```
+
+数据都在宿主机卷里（`/opt/prometheus`、`/opt/grafana`），删容器不丢数据。
+
+**顺带暴露的第二个问题**
+
+换成 compose 的自定义网络后，webhook 接收器用 `host.docker.internal` 指向 `172.17.0.1`（默认网桥），而实际网段变成了 `172.20.0.0/16`，端口连不通。最终把接收器也做成 compose 里的服务，用**服务名**互访，不再依赖任何 172.x 硬编码。
+
+---
+
+## 16. Docker Hub 与 GitHub Release 都下不动，二进制从镜像里取
+
+**现象**
+
+```bash
+docker pull prom/alertmanager:v0.27.0
+# Error ... dial tcp 31.13.87.34:443: connect: connection refused
+
+curl -L -o mysqld.tar.gz https://github.com/prometheus/mysqld_exporter/releases/download/v0.15.1/...
+# curl: (28) Operation timed out after 59424 ms with 236933 out of 8287769 bytes received
+# 约 4 KB/s
+```
+
+**根因**
+
+- Docker Hub 直连被拒；`daemon.json` 里配的阿里云专属加速器对该镜像无缓存，会回退到官方仓库后失败
+- GitHub Release 走 `objects.githubusercontent.com`，本机到该地址被限速到 4 KB/s
+
+**处理**
+
+```bash
+# 镜像：换可用的公共镜像源
+docker pull docker.m.daocloud.io/prom/alertmanager:v0.27.0
+docker tag  docker.m.daocloud.io/prom/alertmanager:v0.27.0 prom/alertmanager:v0.27.0
+
+# 二进制：不从 Release 下，直接从官方镜像里 cp 出来
+cid=$(docker create docker.m.daocloud.io/prom/mysqld-exporter:v0.15.1)
+docker cp "$cid:/bin/mysqld_exporter" /opt/ops-pkg/mysqld_exporter
+docker rm -f "$cid"
+```
+
+`docker cp` 出来的二进制与 Release 包里的完全一致（同一构建产物），版本号可自证：
+
+```bash
+/opt/ops-pkg/mysqld_exporter --version
+# mysqld_exporter, version 0.15.1 (branch: HEAD, revision: cc34968...)
+```
+
+脚本固化在 `scripts/fetch-exporters.sh`，二进制不入库。
+
+**教训**
+
+「官方镜像仓库」和「官方二进制发布页」是两个独立的可达性来源。一个不通不代表另一个也不通，别急着换方案。
+
+---
+
+## 17. 一次错误的探测，把「本机防火墙没开」误判成「安全组拦截」
+
+**现象**
+
+要建 MySQL 主从，先探测 `238 → 237:3306` 是否通。探测脚本写成：
+
+```bash
+timeout 4 bash -c 'exec 3<>/dev/tcp/192.168.1.237/3306' && echo SG_OPEN || echo SG_BLOCKED
+```
+
+结果 `SG_BLOCKED`，据此判断「安全组缺少层内 `sg-app → sg-app` 规则」，准备让控制台加规则。
+
+**后来发生了什么**
+
+MySQL 与 Redis 装完、playbook 加上显式的 `zone=public` rich rule 之后，同一条探测变成 `REACHABLE`，Redis 复制自己就连上了（`master_link_status:up`）。
+
+**根因分析**
+
+探测本身不可靠，至少三点：
+
+1. **超时太短**：4 秒 × 3 次，首次 SYN 若被丢弃，重传窗口还没等完就判死
+2. **只在单端验证**：只测了「能不能连」，没确认监听端真的在 `LISTEN`（当时是用 `python3 -m http.server` 临时顶的）
+3. **把一次失败当成结论**：没有用第二种方法交叉验证（例如在 237 上 `ss -lnt` + `tcpdump` 同时看）
+
+**教训**
+
+- 手工探测得到的「不通」，只能证明**这一次探测没通**，不能直接推出「网络层拦截」
+- 网络问题必须**两端同时取证**：一端看 `ss -lnt` / `tcpdump`，一端看连接结果，中间再看 `iptables -t nat -L` 与安全组
+- 结论写进文档前，用第二种方法复验一次。这次如果直接让用户在控制台加了 5 条规则，环境里就会多出几条**本来不需要**的放行规则，而且没人会再去删
 
 ---
 

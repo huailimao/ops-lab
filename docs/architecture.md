@@ -6,10 +6,14 @@
 
 | 层 | 台数 | 内网地址 | 安全组 | 职责 |
 |---|---|---|---|---|
-| 跳板 / 控制面 | 1 | `.222` | `sg-bastion` | SSH 入口、Ansible 控制节点、Prometheus + Grafana |
+| 跳板 / 控制面 | 1 | `.222` | `sg-bastion` | SSH 入口、Ansible 控制节点、Prometheus + Alertmanager + Grafana |
 | 入口层 | 2 | `.223`–`.224` | `sg-web` | Nginx，承接上游流量 |
-| 应用层 | 17 | `.225`–`.241` | `sg-app` | 业务进程 |
-| 数据层 | 0 | — | `sg-db` | MySQL 主从 / Redis（**本次未部署**） |
+| 应用层 | 14 | `.225`–`.236`、`.240`–`.241` | `sg-app` | 业务进程 |
+| 数据层 | 3 | `.237`–`.239` | `sg-app`（复用） | MySQL 主从、Redis 主从 + 3 哨兵 |
+
+**数据层为什么复用了 `sg-app`**：券余额只够维持 20 台，新建 2–3 台数据层实例会再多一份日成本。
+复用意味着**没有做到「数据层独立安全组」**这个设计目标——应用层任何一台被拿下，都可以直连 `.237:3306`。
+这是本次实践里明确记录的技术债，不是设计意图。真正的收敛方式见 2.1 中 `sg-db` 的预留规则。
 
 **公网 IP 只在跳板机上。** 其余 19 台没有公网地址，无法被外部直接连接。
 
@@ -30,8 +34,10 @@ flowchart TB
         A1["app-01 … app-17<br/>.225 – .241"]
     end
 
-    subgraph SGD["sg-db · ×0（预留）"]
-        D1["MySQL / Redis<br/>未部署"]
+    subgraph SGD["sg-app 复用 · 数据层 ×3"]
+        D1[".237 MySQL 主 / Redis 主
+        .238 MySQL 从 / Redis 从
+        .239 Sentinel"]
     end
 
     Internet -->|"22 ← 出口 IP/32"| B1
@@ -41,12 +47,14 @@ flowchart TB
     B1 -->|"9100"| W1
     B1 -->|"9100"| W2
     B1 -->|"9100"| A1
+    B1 -->|"9104 / 9121"| D1
     W1 -.->|"上游调用（预留）"| A1
     W2 -.->|"上游调用（预留）"| A1
-    A1 -.->|"预留"| D1
+    A1 -->|"3306 / 6379"| D1
+    D1 -->|"6379 复制"| D1
 
-    classDef plan stroke-dasharray: 5 5,opacity:0.6
-    class SGD,D1 plan
+    classDef data fill:#eef,stroke:#88a
+    class SGD,D1 data
 ```
 
 ---
@@ -62,9 +70,9 @@ flowchart TB
 | `sg-web` | TCP 80 / 443 | `0.0.0.0/0` | IPv4 地址段 | 预留，业务入口 |
 | `sg-app` | TCP 22 | `sg-bastion` | 安全组 | SSH 管理 |
 | `sg-app` | TCP 9100 | `sg-bastion` | 安全组 | Prometheus 抓取 node_exporter |
-| `sg-db`（预留） | TCP 22 | `sg-bastion` | 安全组 | SSH 管理 |
-| `sg-db`（预留） | TCP 3306 / 6379 | `sg-app` | 安全组 | 上游访问数据库 |
-| `sg-db`（预留） | TCP 9100 / 9104 / 9121 | `sg-bastion` | 安全组 | 指标抓取 |
+| `sg-app` | TCP 9104 / 9121 | `sg-bastion` | 安全组 | 抓取 mysqld_exporter / redis_exporter |
+| `sg-db`（预留未用） | TCP 22 | `sg-bastion` | 安全组 | SSH 管理 |
+| `sg-db`（预留未用） | TCP 3306 / 6379 | `sg-app` | 安全组 | 上游访问数据库 |
 
 ### 2.2 为什么授权对象用「安全组」
 
@@ -106,6 +114,12 @@ firewall.yml          ← 安装并启用 firewalld
 firewall-9100.yml     ← 依赖 firewalld 已运行，顺序反了必失败
       ↓
 node_exporter.yml     ← 分发二进制 + systemd 托管
+      ↓
+db-install.yml        ← MySQL / Redis / 哨兵（仅 db、redis_sentinel 组）
+      ↓
+exporters.yml         ← mysqld_exporter / redis_exporter（仅 db 组）
+      ↓
+db-replica.yml        ← 建立复制关系（一次性初始化，不在 site.yml 里）
 ```
 
 `firewall-9100.yml` 用了 `immediate: yes`，它要求 firewalld 守护进程正在运行。所以在 `--check` 模式下会报 `firewall is not currently running`——**check 模式不会真正启动服务**，不是配置错误。
@@ -316,3 +330,62 @@ grep -c "Failed password" /var/log/secure
 **为什么不释放**：重建 20 台环境 + 重新跑一遍 Ansible + 重新配安全组，时间成本远超省下的钱。停机保留数据与配置，下次开机即恢复。
 
 **注意**：停机不等于释放，但也**绝不要点错成释放**——实例释放后云盘一并删除，数据不可恢复。
+
+---
+
+## 8. 数据层拓扑
+
+### 8.1 角色分配
+
+| 内网地址 | MySQL | Redis | 说明 |
+|---|---|---|---|
+| `192.168.1.237` | 主（`server_id=1`） | 主 | 复制源、哨兵成员 |
+| `192.168.1.238` | 从（`server_id=2`，`read_only=ON`） | 从 | 复制目标、哨兵成员 |
+| `192.168.1.239` | — | 仅哨兵 | 不跑 Redis 实例，只投票 |
+
+三个哨兵分布在三台机器上，`quorum=2`。**为什么必须奇数**：网络分区时哨兵要能投出唯一多数，
+两台会 1:1 僵持，四台会 2:2 僵持，只有奇数能在少一台时仍然收敛。
+
+### 8.2 MySQL 为什么用 GTID 而不是位点
+
+传统主从要记录 `binlog 文件名 + 偏移量`。主库 binlog 被 `binlog_expire_logs_seconds` 清理后，
+位点失效只能重新全量；做主从切换时还要在新主上重新 `SHOW MASTER STATUS` 找位点。
+
+GTID 模式下从库只声明 `SOURCE_AUTO_POSITION=1`，由 MySQL 自己计算该从哪个事务开始追。
+代价是每次事务多一个 GTID 分配开销，换来的是**切换时不用算位点**。
+
+### 8.3 从库为什么是 `read_only` 而不是 `super_read_only`
+
+`super_read_only=ON` 连带 `SUPER` 的账号也禁止写，安全性更高，但会带来两个运维摩擦：
+
+1. 从库上创建 exporter 账号会被拒绝
+2. 主从切换后，旧从库提权、改参数都要先关掉它
+
+最终取 `read_only=ON`：普通账号写不进去，`root`（带 `SUPER`）仍可运维。
+如果环境里根本不允许人在从库上动 SQL，应该开 `super_read_only`——这是取舍，不是标准答案。
+
+### 8.4 账号模型
+
+| 账号 | 来源主机 | 权限 | 用途 |
+|---|---|---|---|
+| `root` | `localhost` | 全部 | 运维，凭据落在 `/root/.my.cnf`（0600） |
+| `repl` | `192.168.1.%` | `REPLICATION SLAVE` | 从库拉 binlog |
+| `exporter` | `127.0.0.1` | `PROCESS`、`REPLICATION CLIENT`、`SELECT` | mysqld_exporter |
+
+`exporter` 必须按 **IP** 建而不是 `localhost`：开了 `skip-name-resolve` 之后，
+`127.0.0.1` 不会被反解成 `localhost`，按主机名建的账号匹配不上（详见 troubleshooting 案例 14）。
+
+从库不需要手工建这些账号——主库的 `CREATE USER` 会随 binlog 复制过去，这本身就是一次复制验证。
+
+### 8.5 Redis 与哨兵
+
+- 主从：`.238` 配 `replicaof 192.168.1.237 6379`，`masterauth` 与 `requirepass` 同一个密码
+- 持久化：`appendonly yes`（AOF）。单机实验环境没开 RDB 快照策略，`RedisRDBFailed` 规则留着但基本不会触发
+- 哨兵参数：`down-after-milliseconds 5000`（实验环境偏激进，生产一般 30s 起）、`failover-timeout 60000`
+- 哨兵也配了 `sentinel auth-pass`，否则主库有密码时哨兵连不上、永远认为主库挂了
+
+### 8.6 已知缺口
+
+- MySQL 没有自动故障切换（无 MHA / Orchestrator / Group Replication），主库挂掉要人工 `CHANGE REPLICATION SOURCE`
+- 哨兵的切换链路**还没有做过演练**，只在 `sentinel get-master-addr-by-name` 层面验证过「3 个哨兵都认同 `.237` 是主」
+- Redis 未设 `maxmemory` 与淘汰策略，1.8 GiB 内存的机器上被写满会被内核 OOM 杀掉

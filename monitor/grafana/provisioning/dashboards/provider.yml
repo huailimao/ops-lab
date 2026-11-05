@@ -1,0 +1,17 @@
+# Grafana 看板自动加载
+# 位置：/opt/grafana-provisioning/dashboards/provider.yml
+#
+# 看板 JSON 与这份声明放在同一目录，provider 直接扫这个目录。
+# 不要用 UI 的「Import JSON」——那是手工操作，容器一重建就没了。
+apiVersion: 1
+
+providers:
+  - name: ops-lab
+    orgId: 1
+    folder: ops-lab                   # 侧边栏归到一个文件夹，不污染 General
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30         # 文件变了 30 秒内自动重载，不用重启 Grafana
+    allowUiUpdates: true              # UI 里临时调试可以，但以文件为准
+    options:
+      path: /etc/grafana/provisioning/dashboards

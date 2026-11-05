@@ -1,0 +1,267 @@
+---
+# 数据层安装：MySQL 8.0 + Redis 6.2 + 三节点哨兵
+#
+# 这一步只负责「装好、起来、参数到位」，不建立复制关系 ——
+# 复制通道依赖安全组放行 3306/6379，安装不该被网络规则阻塞。
+# 复制关系由 db-replica.yml 建立，两件事分开跑，失败时定位更清楚。
+#
+# 用法：
+#   ansible-playbook -i inventory playbooks/db-install.yml --limit 192.168.1.237
+#   ansible-playbook -i inventory playbooks/db-install.yml
+
+- name: MySQL 安装与实例参数
+  hosts: db
+  become: true
+  vars:
+    mysql_server_id: "{{ 1 if 'db_master' in group_names else 2 }}"
+  tasks:
+    # 不用 dnf 模块：Alibaba Cloud Linux 3 上它会报
+    # "Could not detect which major revision of dnf is in use"，
+    # 与 init.yml 保持一致，用 command + creates 保证幂等
+    - name: 安装 mysql-server
+      command: dnf install -y mysql-server
+      args:
+        creates: /usr/sbin/mysqld
+
+    - name: 写入实例参数
+      copy:
+        dest: /etc/my.cnf.d/99-ops-lab.cnf
+        mode: '0644'
+        content: |
+          # 由 playbooks/db-install.yml 生成，勿手改
+          [mysqld]
+          bind-address = 0.0.0.0
+          server-id = {{ mysql_server_id }}
+
+          # --- 复制基础 ---
+          log_bin = mysql-bin
+          binlog_format = ROW
+          binlog_expire_logs_seconds = 604800
+          max_binlog_size = 128M
+          # GTID 模式：位点由 GTID 集合表达，不用记 binlog 文件名和偏移量，
+          # 主从切换时少一步换位点，也不会因为 binlog 被清理而对不上
+          gtid_mode = ON
+          enforce_gtid_consistency = ON
+
+          # --- 资源与字符集 ---
+          innodb_buffer_pool_size = 256M
+          character-set-server = utf8mb4
+          collation-server = utf8mb4_0900_ai_ci
+          # 关掉反向 DNS：否则每次连接都要解析客户端地址，认证慢几秒
+          skip-name-resolve
+
+          # --- 慢查询 ---
+          slow_query_log = 1
+          long_query_time = 1
+          {% if 'db_slave' in group_names %}
+          # --- 从库只读 ---
+          # 用 read_only 而不是 super_read_only：后者连 SUPER 账号也禁写，
+          # 后面创建 exporter 账号、以及主从切换后提权都会被挡住
+          read_only = ON
+          log_replica_updates = ON
+          relay_log = relay-bin
+          {% endif %}
+      notify: restart mysqld
+
+    - name: 启动 mysqld
+      systemd:
+        name: mysqld
+        state: started
+        enabled: true
+
+    - name: 等待 socket 就绪
+      wait_for:
+        path: /var/lib/mysql/mysql.sock
+        timeout: 180
+
+    - name: 判断 root 当前是否为空密码
+      shell: >
+        mysql --protocol=socket -u root --skip-password --connect-timeout=3
+        -e 'SELECT 1' >/dev/null 2>&1 && echo EMPTY || echo SET
+      register: root_auth
+      changed_when: false
+
+    - name: 设置 root 密码
+      shell: >
+        mysql --protocol=socket -u root --skip-password
+        -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '{{ db_root_password }}';"
+      when: root_auth.stdout == 'EMPTY'
+
+    - name: 写 /root/.my.cnf（避免密码出现在命令行与进程列表里）
+      copy:
+        dest: /root/.my.cnf
+        mode: '0600'
+        content: |
+          [client]
+          user = root
+          password = {{ db_root_password }}
+
+    - name: 主库创建复制账号
+      shell: |
+        mysql -e "CREATE USER IF NOT EXISTS 'repl'@'192.168.1.%' IDENTIFIED BY '{{ db_repl_password }}';"
+        mysql -e "GRANT REPLICATION SLAVE ON *.* TO 'repl'@'192.168.1.%';"
+      when: "'db_master' in group_names"
+
+    - name: 创建 exporter 账号（只读 + 复制状态，最小权限）
+      # 注意 host 必须是 127.0.0.1 而不是 localhost：
+      # 上面配了 skip-name-resolve，MySQL 不再把 127.0.0.1 反解成 localhost，
+      # 用 'exporter'@'localhost' 建号会导致 exporter 报
+      # Error 1130: Host '127.0.0.1' is not allowed to connect
+      shell: |
+        mysql -e "CREATE USER IF NOT EXISTS 'exporter'@'127.0.0.1' IDENTIFIED BY '{{ db_exporter_password }}' WITH MAX_USER_CONNECTIONS 3;"
+        mysql -e "GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'127.0.0.1';"
+      when: "'db_master' in group_names"
+
+    - name: 主库上读到 exporter 账号时要放行（从库同表结构随复制过去）
+      shell: mysql -e "FLUSH PRIVILEGES;"
+      when: "'db_master' in group_names"
+      changed_when: false
+
+  handlers:
+    - name: restart mysqld
+      systemd:
+        name: mysqld
+        state: restarted
+
+- name: Redis 主从与哨兵
+  hosts: redis_sentinel
+  become: true
+  tasks:
+    - name: 安装 redis
+      command: dnf install -y redis
+      args:
+        creates: /usr/bin/redis-server
+
+    - name: 监听地址改为全网卡（主从之间要走内网）
+      lineinfile:
+        path: /etc/redis.conf
+        regexp: '^bind '
+        line: 'bind 0.0.0.0'
+      notify: restart redis
+
+    - name: 开启 AOF
+      lineinfile:
+        path: /etc/redis.conf
+        regexp: '^appendonly '
+        line: 'appendonly yes'
+      notify: restart redis
+
+    - name: 设置访问密码
+      lineinfile:
+        path: /etc/redis.conf
+        regexp: '^#? ?requirepass '
+        line: 'requirepass {{ redis_password }}'
+      notify: restart redis
+
+    - name: 设置主库密码（从库复制、以及故障切换后新主都需要）
+      lineinfile:
+        path: /etc/redis.conf
+        regexp: '^#? ?masterauth '
+        line: 'masterauth {{ redis_password }}'
+      notify: restart redis
+
+    - name: 从库指向主库
+      lineinfile:
+        path: /etc/redis.conf
+        regexp: '^#? ?replicaof '
+        line: 'replicaof 192.168.1.237 6379'
+      when: "'redis_replica' in group_names"
+      notify: restart redis
+
+    - name: 主库移除 replicaof（避免重复执行后角色反转）
+      lineinfile:
+        path: /etc/redis.conf
+        regexp: '^replicaof '
+        state: absent
+      when: "'redis_master' in group_names"
+      notify: restart redis
+
+    - name: 启动 redis
+      systemd:
+        name: redis
+        state: started
+        enabled: true
+
+    # 239 只承担哨兵：留一个没人管的独立 Redis 实例，
+    # 以后会有人误以为它是从库而往里写数据
+    - name: 纯哨兵节点不保留 Redis 实例
+      systemd:
+        name: redis
+        state: stopped
+        enabled: false
+      when:
+        - "'redis_master' not in group_names"
+        - "'redis_replica' not in group_names"
+
+    - name: 配置哨兵
+      lineinfile:
+        path: /etc/redis-sentinel.conf
+        regexp: '^sentinel monitor mymaster '
+        line: 'sentinel monitor mymaster 192.168.1.237 6379 2'
+      notify: restart redis-sentinel
+
+    - name: 哨兵带密码认证主库
+      lineinfile:
+        path: /etc/redis-sentinel.conf
+        regexp: '^sentinel auth-pass mymaster '
+        line: 'sentinel auth-pass mymaster {{ redis_password }}'
+      notify: restart redis-sentinel
+
+    - name: 哨兵判定下线的时长（5 秒，实验环境偏激进）
+      lineinfile:
+        path: /etc/redis-sentinel.conf
+        regexp: '^sentinel down-after-milliseconds mymaster '
+        line: 'sentinel down-after-milliseconds mymaster 5000'
+      notify: restart redis-sentinel
+
+    - name: 哨兵监听地址
+      lineinfile:
+        path: /etc/redis-sentinel.conf
+        regexp: '^bind '
+        line: 'bind 0.0.0.0'
+      notify: restart redis-sentinel
+
+    - name: 启动哨兵
+      systemd:
+        name: redis-sentinel
+        state: started
+        enabled: true
+
+  handlers:
+    - name: restart redis
+      systemd:
+        name: redis
+        state: restarted
+
+    - name: restart redis-sentinel
+      systemd:
+        name: redis-sentinel
+        state: restarted
+
+- name: 数据层主机防火墙
+  hosts: db:redis_sentinel
+  become: true
+  vars:
+    data_ports:
+      - 3306      # MySQL
+      - 6379      # Redis
+      - 26379     # Sentinel
+      - 9104      # mysqld_exporter
+      - 9121      # redis_exporter
+  tasks:
+    - name: 放行数据层端口，仅限内网网段
+      firewalld:
+        rich_rule: 'rule family="ipv4" source address="192.168.1.0/24" port port="{{ item }}" protocol="tcp" accept'
+        permanent: yes
+        immediate: yes
+        state: enabled
+        zone: public
+      loop: "{{ data_ports }}"
+
+    - name: 确认生效
+      command: firewall-cmd --list-rich-rules
+      register: fw
+      changed_when: false
+
+    - debug:
+        var: fw.stdout_lines

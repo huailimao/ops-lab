@@ -10,14 +10,16 @@
 
 | 角色 | 台数 | 内网地址 | 安全组 | 说明 |
 |---|---|---|---|---|
-| 跳板机 | 1 | `192.168.1.222` | `sg-bastion` | 唯一公网 IP；Ansible 控制节点；Prometheus + Grafana |
+| 跳板机 | 1 | `192.168.1.222` | `sg-bastion` | 唯一公网 IP；Ansible 控制节点；Prometheus + Alertmanager + Grafana |
 | 入口 | 2 | `192.168.1.223`–`224` | `sg-web` | Nginx 入口层 |
-| 应用 | 17 | `192.168.1.225`–`241` | `sg-app` | 业务节点，占总量 85% |
-| 数据 | 0 | — | `sg-db` | **规划中，未部署** |
-| **合计** | **20** | | 4 个安全组 | |
+| 应用 | 14 | `192.168.1.225`–`236`、`240`–`241` | `sg-app` | 业务节点 |
+| 数据 | 3 | `192.168.1.237`–`239` | `sg-app`（复用） | MySQL 主从 `.237/.238`、Redis 主从 + 3 哨兵 |
+| **合计** | **20** | | 3 个在用安全组 | |
 
-> 数据层（MySQL 主从 / Redis）在设计中保留了独立安全组，但本次实践**未部署**，`inventory` 的 `[db]` 组为空。
-> 本仓库只声明实际执行过的内容，未完成部分在 [未完成与后续](#未完成与后续) 中单独列出。
+> **数据层没有新建实例，而是复用了应用层的 3 台。** 原因很实际：券余额有限，20 台按量实例每天 30–50 元。
+> 代价必须写清楚：这几台仍挂在 `sg-app` 下，**没有做到"数据层独立安全组"这个网络隔离目标**。
+> 真正的做法应该是新建 `sg-db`、实例只绑 `sg-db`、3306/6379 只对 `sg-app` 开放，
+> 这样应用层被拿下也不能横向直连数据库。README 里把它列为已知偏差，而不是当作已完成。
 
 规格：2 vCPU / 1.8 GiB / 40 GiB 系统盘，Alibaba Cloud Linux 3，按量付费。
 
@@ -38,12 +40,12 @@ flowchart TB
         W2["web-02<br/>192.168.1.224"]
     end
 
-    subgraph SGA["sg-app · 应用 ×17"]
-        A1["app-01 … app-17<br/>192.168.1.225 – 241"]
+    subgraph SGA["sg-app · 应用 ×14"]
+        A1["app-01 … app-14<br/>192.168.1.225 – 236 / 240 – 241"]
     end
 
-    subgraph SGD["sg-db · 数据层 ×0（规划中）"]
-        D1["预留：MySQL 主从 / Redis<br/>本次未部署"]
+    subgraph SGD["sg-app（复用）· 数据层 ×3"]
+        D1["192.168.1.237 MySQL 主 / Redis 主<br/>192.168.1.238 MySQL 从 / Redis 从<br/>192.168.1.239 Sentinel"]
     end
 
     Internet -->|"TCP 22<br/>授权对象 = 本机出口 IP/32"| B1
@@ -53,12 +55,13 @@ flowchart TB
     B1 -->|"TCP 9100 指标抓取"| W1
     B1 -->|"TCP 9100 指标抓取"| W2
     B1 -->|"TCP 9100 指标抓取"| A1
+    B1 -->|"TCP 9104 / 9121 指标抓取"| D1
     W1 -->|"上游调用（预留）"| A1
     W2 -->|"上游调用（预留）"| A1
-    A1 -.->|"预留，未部署"| D1
+    A1 -->|"TCP 3306 / 6379"| D1
 
-    classDef plan stroke-dasharray: 5 5,opacity:0.6
-    class SGD,D1 plan
+    classDef data fill:#eef,stroke:#88a
+    class SGD,D1 data
 ```
 
 **只有跳板机持有公网 IP。** 入口层与应用层全部在 VPC 内网，公网流量必须经跳板机，或通过安全组授权的内网路径进入。
@@ -97,13 +100,13 @@ flowchart TB
 
 ### 3. 监控组件容器化，被监控节点保持二进制
 
-- 监控中心（bastion）：Prometheus + Grafana 跑 Docker Compose，端口只绑 `127.0.0.1`
-- 被监控节点（20 台）：仅一个 13 MB 静态二进制 + systemd unit，不背容器负担
+- 监控中心（bastion）：Prometheus + Alertmanager + Grafana 跑 Docker Compose，端口只绑 `127.0.0.1`
+- 被监控节点（20 台）：仅一个静态二进制 + systemd unit，不背容器负担（`node_exporter` / `mysqld_exporter` / `redis_exporter`）
 
 看板通过 SSH 隧道访问，公网完全不暴露：
 
 ```bash
-ssh -N ops-prom          # LocalForward 9090 / 3000
+ssh -N ops-prom          # LocalForward 9090 / 3000 / 9093
 ```
 
 Prometheus 本身没有认证和多租户，官方建议前置反向代理或限制网络可达。这里用「端口只绑本地 + SSH 隧道」两层，不依赖应用层鉴权。
@@ -120,14 +123,27 @@ Prometheus 本身没有认证和多租户，官方建议前置反向代理或限
 
 ## 监控覆盖
 
-21 个抓取目标，全部 `up`：
+25 个抓取目标：
 
 ```
 node        × 20   192.168.1.222–241:9100
-prometheus  × 1    localhost:9090
+prometheus  ×  1   localhost:9090
+mysql       ×  2   192.168.1.237–238:9104   主从各一
+redis       ×  2   192.168.1.237–238:9121   主从各一
 ```
 
-告警规则 6 条，覆盖实例不可达、磁盘水位、内存水位、负载、服务异常、证书/时间类指标。
+告警规则 12 条，分两组：
+
+| 组 | 规则 | 覆盖 |
+|---|---|---|
+| `node-basic` | NodeDown / DiskWillFull / InodeWillFull / HighLoad / HighMemory / DiskIOSaturated | 主机层 |
+| `data-layer` | MySQLDown / MySQLReplicationStopped / MySQLReplicationLag / RedisDown / RedisRDBFailed / RedisMemoryHigh | 数据层 |
+
+告警链路完整：Prometheus 触发 → Alertmanager 路由 → webhook 接收器落盘（`/opt/alert-webhook/logs/`）。
+Alertmanager 只做了「能送达」，没接企业微信/钉钉/邮件——生产环境替换 `receivers` 一段即可，`route` 与 `inhibit_rules` 不用动。
+
+`inhibit_rules` 里配了一条抑制：`NodeDown` 触发时，同一实例的 P2/P3 告警全部静默。
+否则一台机器宕机会同时炸出磁盘、内存、负载五条告警，值班的人还得自己判断哪条是根因。
 
 ---
 
@@ -184,6 +200,23 @@ prometheus  × 1    localhost:9090
 - 处置：停止重试（被拒的请求同样计入窗口），等 1–2 分钟；批量操作改走 Ansible，用 `-f 3` 控制并发
 - 认知：控制台不是运维工具，是单台操作的界面
 
+### 8. 监控 target 集体变 red，`eth0` 上一个包都抓不到
+
+- 现象：Prometheus 重启换到 compose 自定义网络后，25 个 target 里 19 个报 `context deadline exceeded`；`tcpdump -ni eth0 'port 9100'` **零包**
+- 第一层误判：怀疑安全组、怀疑 firewalld。查了半天规则全部正确，`MASQUERADE` 规则也在
+- 根因：`net.ipv4.ip_forward = 0`。包到了宿主机内核，**路由转发被直接拒绝**，根本到不了网卡出口，所以抓包看不到任何东西
+- 为什么会被关掉：`init.yml` 在 `/etc/sysctl.d/99-ops.conf` 里写死了 `net.ipv4.ip_forward = 0`（面向业务节点的加固项），而 `site.yml` 对 `all` 执行 `sysctl --system`，**跳板机也在 `all` 里**，于是容器网络被打断
+- 定位命令：`sysctl net.ipv4.ip_forward` 一行定案。抓包零包是关键信号——规则挡包会看到 SYN，内核不转发则什么都不留
+- 处置：`init.yml` 改为按角色设置（`{{ '1' if inventory_hostname in groups['bastion'] else '0' }}`），跳板机保留转发
+- 认知：**加固项要按角色区分**。「安全加固」在业务节点是收紧，在跑容器的节点上可能是自断网络
+
+### 9. `exporter` 账号建了却连不上：`Host '127.0.0.1' is not allowed`
+
+- 现象：`mysql_up 0`，exporter 日志 `Error 1130: Host '127.0.0.1' is not allowed to connect`，而同名账号明明存在
+- 根因：账号建的是 `'exporter'@'localhost'`，但配置里关了反向解析（`skip-name-resolve`），MySQL 不再把 `127.0.0.1` 反解成 `localhost`，于是走 IP 连接时匹配不上
+- 处置：改成 `'exporter'@'127.0.0.1'`。**开了 `skip-name-resolve` 就必须按 IP 建号**
+- 附带：从库没有手工建这个账号，它随主库的 DDL 一起复制过去——这也顺带验证了复制是通的
+
 ---
 
 ## 目录结构
@@ -201,16 +234,26 @@ prometheus  × 1    localhost:9090
 │   ├── firewall-9100.yml
 │   ├── node_exporter.yml
 │   ├── distribute-check.yml
-│   └── sshd-lockdown.yml
+│   ├── sshd-lockdown.yml
+│   ├── db-install.yml         # MySQL / Redis / 哨兵安装与参数
+│   ├── db-replica.yml         # 建立 MySQL GTID 主从并验证
+│   └── exporters.yml          # mysqld_exporter / redis_exporter
 ├── scripts/
 │   ├── check.sh               # 单机巡检，8 类指标
-│   └── install-prometheus.sh
+│   ├── install-prometheus.sh
+│   ├── fetch-exporters.sh     # 从容器镜像提取 exporter 二进制（GB 直链被限速）
+│   └── alert-webhook.py       # 告警落盘接收器
 ├── monitor/
-│   ├── docker-compose.yml     # Prometheus + Grafana
-│   └── prometheus.yml         # 20 台抓取目标 + 6 条告警规则
+│   ├── docker-compose.yml     # Prometheus + Alertmanager + Grafana + 接收器
+│   ├── prometheus.yml         # 25 个抓取目标 + alerting 指向
+│   ├── rules.yml              # 12 条告警规则（node-basic / data-layer）
+│   ├── alertmanager.yml       # 路由、抑制规则、webhook 接收器
+│   ├── dashboards/
+│   │   └── node-exporter-full.json   # Grafana 官方 1860，随仓库版本化
+│   └── grafana/provisioning/  # 数据源与看板的声明式装配
 ├── docs/
 │   ├── architecture.md        # 分层设计、安全组矩阵、扩容流程
-│   └── troubleshooting.md     # 12 个真实故障 + 演练取证附录
+│   └── troubleshooting.md     # 17 个真实故障 + 演练取证附录
 ├── evidence/                  # 四组故障演练的原始截图
 │   ├── fault-A1-up-drop.png
 │   ├── fault-B2-disk-table.png
@@ -235,15 +278,21 @@ ansible-playbook -i inventory playbooks/bootstrap.yml -e ansible_user=root
 
 # 3. 其余全部配置：单一入口，幂等，扩容后重跑这一个
 ansible-playbook -i inventory playbooks/site.yml
-#   = init → sshd-lockdown → firewall → firewall-9100 → node_exporter → 巡检分发
+#   = init → sshd-lockdown → firewall → firewall-9100 → node_exporter
+#     → 巡检分发 → db-install → exporters
+
+# 3b. 数据层复制关系（只跑一次，属于初始化而非收敛）
+ansible-playbook -i inventory playbooks/db-replica.yml
 
 # 4. 验收：加固与监控都必须逐台核对生效值，不看 playbook 的 ok
 ansible all -i inventory -m shell -a "sudo -n sshd -T | grep '^permitrootlogin'"
 ansible all -i inventory -m shell -a "sudo -n systemctl is-active node_exporter"
+ansible db -i inventory -m shell -a "mysql -e 'SHOW REPLICA STATUS\G' | grep Running"
 
 # 5. 监控
 cd monitor && docker compose up -d
 curl -s http://127.0.0.1:9090/api/v1/targets | grep -o '"health":"[a-z]*"' | sort | uniq -c
+#   期望 25 个 up；mysql/redis 两个 job 需要在安全组放行 9104/9121 给跳板机
 ```
 
 ---
@@ -252,9 +301,11 @@ curl -s http://127.0.0.1:9090/api/v1/targets | grep -o '"health":"[a-z]*"' | sor
 
 明确列出没做的部分，避免文档与环境不一致：
 
-- **数据层未部署**：`sg-db` 已建、`inventory` 的 `[db]` 组为空。MySQL 主从（GTID）、Redis 主从、`mysqld_exporter` / `redis_exporter` 均未落地
-- **Grafana 看板**：仅接入 Prometheus 数据源，未导出 dashboard JSON 入库
-- **告警通道**：Alertmanager 未部署，规则只触发不通知
+- **数据层没进独立安全组**：实例仍挂 `sg-app`。设计上应该是 `sg-db` 只接受 `sg-app` 的 3306/6379，这样应用层被突破也不能直接连库
+- **MySQL 没有高可用**：只有一主一从 + GTID，没有 MHA / Orchestrator / Group Replication，主库挂掉必须人工切
+- **Redis 哨兵未做故障切换演练**：3 个哨兵已就位并 `monitoring`，但「杀主 → 选举 → 旧主降级」这条链路还没跑过（Redis 单实例也没设 `maxmemory`）
+- **告警只落盘**：`alert-webhook` 把告警写成 JSON 行，没有接企业微信/钉钉/邮件，也没有静默与升级策略
+- **Grafana 只有 Node Exporter 一张看板**：MySQL / Redis 指标已进 Prometheus，但没有对应 dashboard
 - **入口层**：Nginx 已装未配置业务站点，80/443 规则保留
 - **日志聚合**：Loki 未接入
 

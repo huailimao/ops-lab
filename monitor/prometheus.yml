@@ -7,6 +7,13 @@ global:
 rule_files:
   - /etc/prometheus/rules.yml
 
+# 规则触发后必须有人接，否则只是 /alerts 页面上的一行红字
+# alertmanager 是 compose 内的服务名，不用宿主机端口
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
 scrape_configs:
   - job_name: node
     static_configs:
@@ -37,3 +44,23 @@ scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets: ['localhost:9090']
+
+  # 数据层探针。exporter 跑在各自机器上（127.0.0.1 采集），
+  # 这里只负责跨机抓取，端口 9104 / 9121 需要在安全组放行给跳板机
+  - job_name: mysql
+    static_configs:
+      - targets:
+          - "192.168.1.237:9104"
+          - "192.168.1.238:9104"
+        labels:
+          env: lab
+          layer: db
+
+  - job_name: redis
+    static_configs:
+      - targets:
+          - "192.168.1.237:9121"
+          - "192.168.1.238:9121"
+        labels:
+          env: lab
+          layer: db

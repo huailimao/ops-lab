@@ -1,0 +1,91 @@
+---
+# 建立 MySQL 复制关系（GTID 自动定位）
+#
+# 为什么不用传统位点：GTID 下从库只需声明 SOURCE_AUTO_POSITION=1，
+# 由 MySQL 自己算该从哪个事务开始追，不用人工记录 binlog 文件名和偏移量。
+# 主库 binlog 被清理、或主从切换后再反向建立，都不需要重新找位点。
+#
+# 用法：ansible-playbook -i inventory playbooks/db-replica.yml
+
+- name: 从库建立复制通道
+  hosts: db_slave
+  become: true
+  tasks:
+    - name: 主库可达性预检（先确认 3306 通，再动复制配置）
+      wait_for:
+        host: 192.168.1.237
+        port: 3306
+        timeout: 10
+
+    - name: 停掉可能残留的复制通道
+      shell: mysql -e "STOP REPLICA;" 2>/dev/null || true
+      changed_when: false
+
+    - name: 指向主库并启动复制
+      shell: |
+        mysql -e "CHANGE REPLICATION SOURCE TO
+          SOURCE_HOST='192.168.1.237',
+          SOURCE_PORT=3306,
+          SOURCE_USER='repl',
+          SOURCE_PASSWORD='{{ db_repl_password }}',
+          SOURCE_AUTO_POSITION=1,
+          GET_SOURCE_PUBLIC_KEY=1;"
+        mysql -e "START REPLICA;"
+      changed_when: true
+
+    - name: 等待 IO / SQL 两个线程都变成 Yes
+      shell: >
+        mysql -e "SHOW REPLICA STATUS\G"
+        | grep -cE "Replica_IO_Running: Yes|Replica_SQL_Running: Yes"
+      register: threads
+      until: threads.stdout | trim == "2"
+      retries: 12
+      delay: 3
+      changed_when: false
+
+    - name: 输出复制状态
+      shell: >
+        mysql -e "SHOW REPLICA STATUS\G"
+        | grep -E "Replica_IO_Running|Replica_SQL_Running|Seconds_Behind_Source|Source_Host|Auto_Position|Last_IO_Error"
+      register: rep
+      changed_when: false
+
+    - debug:
+        var: rep.stdout_lines
+
+- name: 写入验证数据（主库）
+  hosts: db_master
+  become: true
+  tasks:
+    - name: 建库建表并写入一行
+      shell: |
+        mysql -e "CREATE DATABASE IF NOT EXISTS opslab CHARACTER SET utf8mb4;"
+        mysql -e "CREATE TABLE IF NOT EXISTS opslab.repl_check (id INT PRIMARY KEY, note VARCHAR(64), ts DATETIME);"
+        mysql -e "REPLACE INTO opslab.repl_check VALUES (1, 'gtid-repl-ok', NOW());"
+        mysql -e "SELECT * FROM opslab.repl_check;"
+
+- name: 从库读回（证明真的复制过去了，不是心理安慰）
+  hosts: db_slave
+  become: true
+  tasks:
+    - name: 从库查询同一行
+      shell: mysql -e "SELECT * FROM opslab.repl_check;"
+      register: slave_row
+      until: "'gtid-repl-ok' in slave_row.stdout"
+      retries: 10
+      delay: 2
+      changed_when: false
+
+    - name: 确认从库只读参数
+      # 这里查 @@read_only 而不是真去写一条：root 带 SUPER 权限，
+      # 在 read_only=ON 下照样能写，用 root 测「能不能写」得不出结论。
+      shell: mysql -N -e "SELECT @@read_only, @@super_read_only;"
+      register: ro
+      changed_when: false
+
+    - name: 断言从库处于只读
+      assert:
+        that:
+          - ro.stdout.split() | first == "1"
+        fail_msg: "从库 read_only 未生效，写流量可能打到从库上"
+        success_msg: "read_only=ON（super_read_only 未开，保留运维建号能力）"

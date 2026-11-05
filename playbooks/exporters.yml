@@ -1,0 +1,131 @@
+---
+# 数据层监控探针：mysqld_exporter + redis_exporter
+#
+# 二进制从跳板机的 /opt/ops-pkg 分发，不在每台机器上重复下载。
+# 这两个二进制不是 GitHub 直下的（release 下载被限速到 4KB/s），
+# 而是从官方容器镜像里 docker cp 出来的，见 scripts/fetch-exporters.sh。
+#
+# 用法：ansible-playbook -i inventory playbooks/exporters.yml
+
+- name: 部署 mysqld_exporter 与 redis_exporter
+  hosts: db
+  become: true
+  tasks:
+    - name: 创建 exporter 专用系统用户（不给登录 shell）
+      user:
+        name: exporter
+        shell: /sbin/nologin
+        system: true
+        create_home: false
+
+    - name: 分发二进制
+      copy:
+        src: "/opt/ops-pkg/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        mode: '0755'
+      loop:
+        - mysqld_exporter
+        - redis_exporter
+
+    - name: mysqld_exporter 连接凭据
+      copy:
+        dest: /etc/mysqld_exporter.cnf
+        mode: '0600'
+        owner: exporter
+        content: |
+          [client]
+          user = exporter
+          password = {{ db_exporter_password }}
+          host = 127.0.0.1
+          port = 3306
+
+    - name: mysqld_exporter systemd 单元
+      copy:
+        dest: /etc/systemd/system/mysqld_exporter.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Prometheus mysqld_exporter
+          After=mysqld.service
+          Wants=mysqld.service
+
+          [Service]
+          User=exporter
+          Group=exporter
+          ExecStart=/usr/local/bin/mysqld_exporter \
+            --config.my-cnf=/etc/mysqld_exporter.cnf \
+            --collect.global_status \
+            --collect.global_variables \
+            --collect.slave_status \
+            --collect.info_schema.processlist \
+            --web.listen-address=:9104
+          Restart=on-failure
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: restart mysqld_exporter
+
+    - name: redis_exporter 密码（走环境变量，不出现在 ps 里）
+      copy:
+        dest: /etc/redis_exporter.env
+        mode: '0600'
+        owner: exporter
+        content: |
+          REDIS_PASSWORD={{ redis_password }}
+
+    - name: redis_exporter systemd 单元
+      copy:
+        dest: /etc/systemd/system/redis_exporter.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Prometheus redis_exporter
+          After=redis.service
+          Wants=redis.service
+
+          [Service]
+          User=exporter
+          Group=exporter
+          EnvironmentFile=/etc/redis_exporter.env
+          ExecStart=/usr/local/bin/redis_exporter \
+            --redis.addr=redis://127.0.0.1:6379 \
+            --web.listen-address=:9121
+          Restart=on-failure
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: restart redis_exporter
+
+    - name: 启动两个 exporter
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+        daemon_reload: true
+      loop:
+        - mysqld_exporter
+        - redis_exporter
+
+    - name: 等待端口就绪
+      wait_for:
+        port: "{{ item }}"
+        host: 127.0.0.1
+        timeout: 30
+      loop:
+        - 9104
+        - 9121
+
+  handlers:
+    - name: restart mysqld_exporter
+      systemd:
+        name: mysqld_exporter
+        state: restarted
+        daemon_reload: true
+
+    - name: restart redis_exporter
+      systemd:
+        name: redis_exporter
+        state: restarted
+        daemon_reload: true
