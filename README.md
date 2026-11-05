@@ -112,6 +112,8 @@ Prometheus 本身没有认证和多租户，官方建议前置反向代理或限
 
 `scripts/check.sh` 单机 8 类指标（磁盘 / inode / 负载 vs 核数 / 内存 / 关键服务 / 监听端口 / 失败登录 / 待重启），一行一指标，越界标 `WARN`，末行输出 `RESULT <host> warn=N`。
 
+仓库里是脚本源码，实际执行路径是 `/opt/ops-lab/check.sh`——由 `playbooks/distribute-check.yml` 统一分发。**不放 `/root` 下**：Ansible 用 `ops` 用户连接，而 `/root` 是 0700，脚本放那里等于只有 root 能跑，20 台里必有一半报 `No such file or directory`。
+
 退出码固定 0，让 Ansible 聚合结果时不会因“有告警”而整片 FAILED。
 
 ---
@@ -140,11 +142,12 @@ prometheus  × 1    localhost:9090
 - 根因：`UseDNS yes`
 - 处置：`UseDNS no` + `GSSAPIAuthentication no`，`sshd -t` 校验后 `systemctl restart sshd`，延迟降到 300 ms 内
 
-### 2. harden 之后 root 登录被拒、当前会话被踢断
+### 2. 加固执行到 `restart sshd` 后，当前会话被踢断
 
-- 现象：`harden.yml` 执行到 `restart sshd` 后，原 root 会话断开，重新连接报 `Permission denied (publickey)`
+- 现象：`sshd-lockdown.yml` 执行到 `restart sshd` 后，原 root 会话断开，重新连接报 `Permission denied (publickey)`
 - 根因：`PermitRootLogin no` + `restart` 会杀掉现存连接。这是加固的**预期结果**，不是故障
-- 处置：改用 `ops` 用户 + `sudo -i`；后续 harden 一律先 `--limit` 单台验证再全量，避免 15 台同时失联
+- 处置：改用 `ops` 用户 + `sudo -i`；后续加固一律先 `--limit` 单台验证再全量，避免 15 台同时失联。现已改为 `notify: reload sshd` + `systemd state: reloaded`，新连接生效、已有会话不断
+- **后续追踪**：这个「预期结果」仅发生在首批 5 台。扩容后 15 台漏跑了 `sshd-lockdown.yml`，`PermitRootLogin` 一直是镜像默认的 `yes`，数天后才被发现。根因是缺少单一入口，已用 `playbooks/site.yml` 收敛，详见 `docs/troubleshooting.md` 案例 12
 - 附带原则：**不把 `ops` 加入 `docker` 组**。docker 组等价 root（`docker run -v /:/host` 可直接拿宿主机 shell），会让 sudo 审计形同虚设
 
 ### 3. node_exporter 全部就绪，但一半节点显示 down
@@ -190,11 +193,14 @@ prometheus  × 1    localhost:9090
 ├── README.md
 ├── inventory.example          # 清单示例（真实 inventory 不入库）
 ├── playbooks/
+│   ├── bootstrap.yml          # 新机首次接入（root 身份，唯一入口）
+│   ├── site.yml               # 其余全部配置（ops 身份，幂等，扩容重跑这一个）
 │   ├── init.yml
 │   ├── harden.yml
 │   ├── firewall.yml
 │   ├── firewall-9100.yml
 │   ├── node_exporter.yml
+│   ├── distribute-check.yml
 │   └── sshd-lockdown.yml
 ├── scripts/
 │   ├── check.sh               # 单机巡检，8 类指标
@@ -218,18 +224,20 @@ prometheus  × 1    localhost:9090
 cp inventory.example inventory
 vim inventory                  # 填入真实内网 IP
 
-# 2. 打通（首次需 root 身份跑 harden 建 ops 用户）
+# 2. 首次接入：建 ops 用户（唯一需要 root 的一步，先单台后全量）
 ansible all -i inventory -m ping -e ansible_user=root
-ansible-playbook -i inventory playbooks/harden.yml -e ansible_user=root --limit <单台先验>
-ansible-playbook -i inventory playbooks/harden.yml -e ansible_user=root
+ansible-playbook -i inventory playbooks/bootstrap.yml -e ansible_user=root --limit 192.168.1.222
+ansible-playbook -i inventory playbooks/bootstrap.yml -e ansible_user=root
 
-# 3. 基线配置（顺序不可颠倒）
-ansible-playbook -i inventory playbooks/init.yml
-ansible-playbook -i inventory playbooks/firewall.yml
-ansible-playbook -i inventory playbooks/firewall-9100.yml
-ansible-playbook -i inventory playbooks/node_exporter.yml
+# 3. 其余全部配置：单一入口，幂等，扩容后重跑这一个
+ansible-playbook -i inventory playbooks/site.yml
+#   = init → sshd-lockdown → firewall → firewall-9100 → node_exporter → 巡检分发
 
-# 4. 监控
+# 4. 验收：加固与监控都必须逐台核对生效值，不看 playbook 的 ok
+ansible all -i inventory -m shell -a "sudo -n sshd -T | grep '^permitrootlogin'"
+ansible all -i inventory -m shell -a "sudo -n systemctl is-active node_exporter"
+
+# 5. 监控
 cd monitor && docker compose up -d
 curl -s http://127.0.0.1:9090/api/v1/targets | grep -o '"health":"[a-z]*"' | sort | uniq -c
 ```

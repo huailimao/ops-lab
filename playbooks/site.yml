@@ -1,0 +1,20 @@
+---
+# 节点配置的单一入口 —— 扩容、重装、日常收敛都只跑这一个文件。
+#
+# ANSIBLE_CONFIG 无关，直接：
+#   ansible-playbook -i inventory playbooks/site.yml
+#
+# 为什么要这个文件：原先 init / harden / sshd-lockdown / firewall / node_exporter
+# 是 6 个独立 playbook，靠人记着"按顺序都跑一遍"。扩容 15 台时只跑了 harden.yml
+# （因为要先建 ops 用户才能连），sshd-lockdown.yml 被漏掉，导致 15 台机器
+# PermitRootLogin 停留在 yes 长达数天 —— 典型的配置漂移。
+# 收敛入口之后，"漏跑" 这件事在结构上就不成立了。
+#
+# 全部任务幂等，可反复执行；顺序不可颠倒（firewall-9100 依赖 firewall 先建 zone）。
+
+- import_playbook: init.yml            # 时区 / 软件源 / 基础包
+- import_playbook: sshd-lockdown.yml   # 禁 root 直连、禁密码、UseDNS off（含 sshd -t 校验）
+- import_playbook: firewall.yml        # firewalld 基础策略
+- import_playbook: firewall-9100.yml   # 放行 9100，仅内网网段
+- import_playbook: node_exporter.yml   # 监控探针
+- import_playbook: distribute-check.yml  # 巡检脚本分发到 /opt/ops-lab

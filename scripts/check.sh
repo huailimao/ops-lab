@@ -53,7 +53,8 @@ for p in 22 9100; do
 done
 
 # 7. 失败登录统计（/var/log/secure 属 root，用 sudo -n 兜底）
-F=$(sudo -n grep -c "Failed password" /var/log/secure 2>/dev/null)
+F=$(sudo -n grep -E 'sshd' /var/log/secure 2>/dev/null | grep -cE 'Failed password|Failed publickey|Invalid user|Connection closed by (invalid|authenticating) user')
+
 if isnum "$F"; then
   w=0; [ "$F" -ge 50 ] && w=1
   warn_if SSH_FAIL "$w" "count=${F}"

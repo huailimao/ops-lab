@@ -14,30 +14,41 @@
         path: /etc/ssh/sshd_config
         regexp: '^#?PermitRootLogin'
         line: 'PermitRootLogin no'
+      notify: reload sshd
 
     - name: 禁止密码登录
       lineinfile:
         path: /etc/ssh/sshd_config
         regexp: '^#?PasswordAuthentication'
         line: 'PasswordAuthentication no'
+      notify: reload sshd
 
     - name: 关闭反向 DNS 查询
       lineinfile:
         path: /etc/ssh/sshd_config
         regexp: '^#?UseDNS'
         line: 'UseDNS no'
+      notify: reload sshd
 
     - name: 关闭 GSSAPI
       lineinfile:
         path: /etc/ssh/sshd_config
         regexp: '^#?GSSAPIAuthentication'
         line: 'GSSAPIAuthentication no'
+      notify: reload sshd
 
+    # 校验必须在 reload 之前。配置写错时这里失败 → 该主机退出本 play → handler 不会执行，
+    # sshd 保持旧配置运行，不会把机器变成"连不上"的状态。
     - name: 校验 sshd 配置语法
       command: sshd -t
       changed_when: false
 
-    - name: 重启 sshd
+  handlers:
+    # 用 reload（SIGHUP）而不是 restart：
+    #   - reload 让 sshd 重新读取配置并对新连接生效，已有会话不断
+    #   - restart 会杀掉所有现存连接，巡检/批量运维时等于自断链路
+    # 只有配置真的发生变化（lineinfile changed）才会触发，天然幂等。
+    - name: reload sshd
       systemd:
         name: sshd
-        state: restarted
+        state: reloaded
