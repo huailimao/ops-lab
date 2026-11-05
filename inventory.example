@@ -1,0 +1,36 @@
+# Ansible 清单示例
+#
+# 用法：
+#   cp inventory.example inventory
+#   把下面的占位地址替换为真实内网 IP 后使用
+#
+# 真实 inventory 不入库（见 .gitignore）——它包含主机名、网段与私钥路径，
+# 属于环境布局信息，公开仓库里只保留本示例。
+
+[bastion]
+# 跳板机：Ansible 控制节点，唯一持有公网 IP 的机器
+# ansible_connection=local 表示在本机直接执行，不走 SSH
+10.0.0.10 ansible_connection=local
+
+[web]
+# 入口层：Nginx，对外提供服务入口
+10.0.0.11
+10.0.0.12
+
+[app]
+# 应用层：业务节点，可横向扩容
+# 扩容时只加到这里即可，安全组按「安全组」授权，规则无需改动
+10.0.0.13
+10.0.0.14
+
+[db]
+# 数据层：本实践未部署，保留分组占位
+# 部署后注意：MySQL 3306 / mysqld_exporter 9104 / Redis 6379 / redis_exporter 9121
+# 需要同时在 sg-db 入方向放行，并同步 prometheus.yml 的 targets
+
+[all:vars]
+ansible_user=ops
+ansible_become=yes
+ansible_become_method=sudo
+ansible_ssh_private_key_file=/root/.ssh/id_rsa
+ansible_python_interpreter=/usr/bin/python3

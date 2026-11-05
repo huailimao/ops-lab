@@ -1,0 +1,22 @@
+# —— 敏感文件：不入库 ——
+# 真实清单含内网 IP、主机名、私钥路径，只保留 inventory.example
+inventory
+inventory.bak-*
+*.retry
+*.pem
+*.key
+.vault_pass
+
+# —— 编辑器与临时文件 ——
+*.swp
+*.swo
+*~
+.DS_Store
+
+# —— 运行产物 ——
+# 巡检日志含全部主机名与 IP，只保留脱敏后的 sample-*.log
+reports/*.log
+!reports/sample-*.log
+
+# —— 本地环境 ——
+.env

@@ -1,0 +1,41 @@
+# Prometheus + Grafana 监控中心
+#
+# 使用：
+#   cp .env.example .env && vim .env      # 设置 Grafana 管理员密码
+#   docker compose up -d
+#   浏览器通过 SSH 隧道访问：ssh -N ops-prom  →  http://localhost:9090 / :3000
+#
+# 两个端口都只绑 127.0.0.1：Prometheus 无内置认证，绝不可暴露公网。
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: prometheus
+    restart: unless-stopped
+    user: root
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      # 挂目录而非单文件：单文件 bind mount 绑定 inode，
+      # 宿主端文件被 mv/重建后容器仍指向旧内容，表现为「reload 成功但配置不生效」
+      - /opt/prometheus:/etc/prometheus:ro
+      - /opt/prometheus/data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle      # 开启 POST /-/reload 热加载
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD:?请在 .env 中设置}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - /opt/grafana:/var/lib/grafana
+    depends_on:
+      - prometheus

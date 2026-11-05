@@ -12,7 +12,7 @@ PORT       listen=2                               OK
 SSH_FAIL   count=0                                OK
 REBOOT     no                                     OK
 RESULT bastion warn=0/usr/local/bin/check.sh: line 20: [: -: integer expression expected
-192.168.1.223 | CHANGED | rc=0 >>
+10.0.0.x | CHANGED | rc=0 >>
 DISK       / 24%                                  OK
 DISK       /boot/efi 3%                           OK
 INODE      / 4%                                   OK
@@ -26,7 +26,7 @@ PORT       listen=2                               OK
 SSH_FAIL   count=0                                OK
 REBOOT     no                                     OK
 RESULT iZbp15vu3s1qoapjq2nqtkZ warn=0/usr/local/bin/check.sh: line 20: [: -: integer expression expected
-192.168.1.226 | CHANGED | rc=0 >>
+10.0.0.x | CHANGED | rc=0 >>
 DISK       / 24%                                  OK
 DISK       /boot/efi 3%                           OK
 INODE      / 4%                                   OK
@@ -40,7 +40,7 @@ PORT       listen=2                               OK
 SSH_FAIL   count=0                                OK
 REBOOT     no                                     OK
 RESULT app-01 warn=0/usr/local/bin/check.sh: line 20: [: -: integer expression expected
-192.168.1.224 | CHANGED | rc=0 >>
+10.0.0.x | CHANGED | rc=0 >>
 DISK       / 24%                                  OK
 DISK       /boot/efi 3%                           OK
 INODE      / 4%                                   OK
@@ -54,7 +54,7 @@ PORT       listen=2                               OK
 SSH_FAIL   count=0                                OK
 REBOOT     no                                     OK
 RESULT iZbp15vu3s1qoapjq2nqtlZ warn=0/usr/local/bin/check.sh: line 20: [: -: integer expression expected
-192.168.1.225 | CHANGED | rc=0 >>
+10.0.0.x | CHANGED | rc=0 >>
 DISK       / 24%                                  OK
 DISK       /boot/efi 3%                           OK
 INODE      / 4%                                   OK
